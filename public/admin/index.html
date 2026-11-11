@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>AI admin · melltron.build lab</title>
+<meta name="robots" content="noindex">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/admin/admin.css">
+<script src="/admin/admin.js" defer></script>
+</head>
+<body>
+<main class="wrap">
+  <header>
+    <a class="crumb" href="/">← ai.melltron.build</a>
+    <h1>Access requests</h1>
+    <p class="dim" id="summary">Loading…</p>
+  </header>
+  <p id="error" class="error" hidden></p>
+  <section>
+    <h2>Waiting for you</h2>
+    <div id="pending" class="cards"></div>
+  </section>
+  <section>
+    <h2>Everyone else</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Visitor</th><th>Status</th><th>Prompts</th><th>IP</th><th>Last seen</th><th></th></tr></thead>
+        <tbody id="others"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+</body>
+</html>

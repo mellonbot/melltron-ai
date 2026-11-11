@@ -9,14 +9,37 @@ const els = {
   model: $("model"), thinkWrap: $("think-wrap"), think: $("think"),
   log: $("log"), empty: $("empty"), notice: $("notice"),
   form: $("composer"), input: $("input"), send: $("send"), stop: $("stop"),
+  quota: $("quota"), emptyQuota: $("empty-quota"),
+  request: $("request"), requestText: $("request-text"), requestName: $("request-name"),
+  requestNote: $("request-note"), requestSend: $("request-send"), requestStatus: $("request-status"),
 };
 
 // ---------- storage (per-browser convenience; survives failures) ----------
-const KEY = { chats: "ai.chats.v1", current: "ai.current", model: "ai.model", think: "ai.think" };
+const KEY = { chats: "ai.chats.v1", current: "ai.current", model: "ai.model", think: "ai.think", visitor: "ai.visitor", pass: "ai.pass" };
 const store = {
   get(k, fallback) { try { const v = localStorage.getItem(k); return v == null ? fallback : JSON.parse(v); } catch { return fallback; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
 };
+
+// ---------- identity: a random visitor id, plus a tailnet pass if we were given one ----------
+// tools/tailnet-pass.py (reachable only on the tailnet) redirects here with #pass=<token>.
+const hashPass = location.hash.match(/^#pass=([A-Za-z0-9_.-]{20,2048})$/);
+if (hashPass) {
+  store.set(KEY.pass, hashPass[1]);
+  history.replaceState(null, "", location.pathname + location.search);
+}
+let visitor = store.get(KEY.visitor, null);
+if (!visitor || !/^[A-Za-z0-9-]{16,64}$/.test(visitor)) {
+  visitor = (crypto.randomUUID?.() || Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join(""));
+  store.set(KEY.visitor, visitor);
+}
+const idHeaders = () => {
+  const h = { "x-ai-visitor": visitor };
+  const pass = store.get(KEY.pass, null);
+  if (pass) h["x-ai-pass"] = pass;
+  return h;
+};
+let quota = null; // last /api/quota answer
 
 let chats = store.get(KEY.chats, []);
 let currentId = store.get(KEY.current, null);
@@ -192,6 +215,10 @@ const ERRORS = {
   access_not_configured: "Access verification isn't configured on the Worker yet (ACCESS_TEAM_DOMAIN / ACCESS_AUD).",
   unauthenticated: "Your sign-in has expired.",
   too_large: "This conversation is too long to send. Start a new chat.",
+  quota_exhausted: "You've used your free prompts. Request access below.",
+  denied: "The owner declined access for this browser.",
+  visitor_required: "This browser couldn't be identified. Allow site storage and reload.",
+  quota_not_configured: "The prompt quota isn't set up on the Worker yet.",
   rate_limited: "Too many requests from your connection. Wait a minute and try again.",
   rate_limit_not_configured: "The Worker is public but has no rate limit configured, so it's refusing requests.",
 };
@@ -200,7 +227,7 @@ const explain = (e) => (e.error === "offline" && OFFLINE[e.backend]) || ERRORS[e
 // ---------- API ----------
 async function api(path, init) {
   let res;
-  try { res = await fetch(path, { credentials: "same-origin", ...init }); }
+  try { res = await fetch(path, { credentials: "same-origin", ...init, headers: { ...idHeaders(), ...(init?.headers || {}) } }); }
   catch (err) {
     if (err.name === "AbortError") throw err;
     // An expired Access session redirects cross-origin, which fetch reports as a network error.
@@ -256,8 +283,79 @@ async function loadModels() {
   updateSend();
 }
 
+// ---------- quota ----------
+const BLOCKED = new Set(["exhausted", "pending", "denied"]);
+const blocked = () => !!quota && BLOCKED.has(quota.tier);
+let pollTimer = 0;
+
+function renderQuota() {
+  const q = quota;
+  els.quota.hidden = true; els.emptyQuota.hidden = true; els.request.hidden = true;
+  delete els.quota.dataset.low;
+  clearTimeout(pollTimer);
+  if (!q || q.tier === "private") { updateSend(); return; }
+  let line = "";
+  if (q.tier === "tailnet") line = `Tailnet${q.device ? " · " + q.device : ""} · unlimited`;
+  else if (q.tier === "approved") line = "Approved · unlimited";
+  else if (q.tier === "free") {
+    line = `${q.remaining} of ${q.limit} free prompt${q.limit === 1 ? "" : "s"} left`;
+    if (q.remaining <= 3) els.quota.dataset.low = "";
+    els.emptyQuota.textContent = `Visitors get ${q.limit} free prompts; after that the owner can approve more.`;
+    els.emptyQuota.hidden = false;
+  }
+  if (line) { els.quota.textContent = line; els.quota.hidden = false; }
+  els.who.textContent = line;
+
+  if (q.tier === "exhausted" || q.tier === "pending") {
+    els.request.hidden = false;
+    const pending = q.tier === "pending";
+    els.requestText.replaceChildren();
+    const strong = document.createElement("strong");
+    strong.textContent = pending ? "Access requested." : "You've used your free prompts.";
+    els.requestText.append(strong, pending
+      ? " The owner will see it on their admin page; this page unlocks by itself once they approve. You can update your note meanwhile."
+      : " Ask the owner for more: they'll see your name and note.");
+    els.requestSend.textContent = pending ? "Update request" : "Request access";
+    // Check back every 30 s while waiting.
+    if (pending) pollTimer = setTimeout(loadQuota, 30000);
+  } else if (q.tier === "denied") {
+    els.request.hidden = false;
+    els.requestText.textContent = ERRORS.denied;
+    els.requestName.closest("label").hidden = true; els.requestNote.closest("label").hidden = true;
+    els.requestSend.hidden = true;
+  }
+  updateSend();
+}
+
+async function loadQuota() {
+  try {
+    quota = await (await api("/api/quota")).json();
+    if (quota.passInvalid) store.set(KEY.pass, null); // expired or revoked: fall back to the free tier
+  } catch { /* leave the last known quota */ }
+  renderQuota();
+}
+
+els.request.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const name = els.requestName.value.trim();
+  if (!name) { els.requestName.focus(); return; }
+  els.requestSend.disabled = true; els.requestStatus.textContent = "Sending…";
+  try {
+    quota = await (await api("/api/access-request", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name, note: els.requestNote.value.trim() }),
+    })).json();
+    els.requestStatus.textContent = "Sent.";
+    renderQuota();
+  } catch (err) {
+    els.requestStatus.textContent = err.message;
+  } finally {
+    els.requestSend.disabled = false;
+  }
+});
+
 async function loadMe() {
-  try { const d = await (await api("/api/me")).json(); els.who.textContent = d.email || ""; } catch {}
+  try { const d = await (await api("/api/me")).json(); if (d.email) els.who.textContent = d.email; } catch {}
 }
 
 // ---------- chat ----------
@@ -266,7 +364,7 @@ function updateThink() { els.thinkWrap.hidden = !modelInfo()?.thinking; }
 function updateSend() {
   const busy = !!controller;
   els.send.hidden = busy; els.stop.hidden = !busy;
-  els.send.disabled = busy || els.model.disabled || !els.input.value.trim();
+  els.send.disabled = busy || els.model.disabled || blocked() || !els.input.value.trim();
 }
 
 function autosize() { els.input.style.height = "auto"; els.input.style.height = Math.min(els.input.scrollHeight, innerHeight * 0.4) + "px"; }
@@ -287,7 +385,7 @@ function splitThink(reply, raw, open) {
 
 async function send() {
   const text = els.input.value.trim();
-  if (!text || controller || els.model.disabled) return;
+  if (!text || controller || els.model.disabled || blocked()) return;
   let c = current();
   if (!c) { c = { id: uid(), title: "", model: els.model.value, messages: [], updated: Date.now() }; chats.push(c); currentId = c.id; }
   c.model = els.model.value;
@@ -360,6 +458,7 @@ async function send() {
     }
   } finally {
     reply.streaming = false; // failed turns stay visible but are filtered out of history
+    loadQuota(); // refresh "N left", or show the access form
     controller = null;
     c.updated = Date.now();
     save();
@@ -399,5 +498,6 @@ if (currentId && !current()) currentId = null;
 save();
 renderAll();
 loadModels();
+loadQuota();
 loadMe();
 els.input.focus();

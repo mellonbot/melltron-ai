@@ -12,7 +12,12 @@ browser ──▶ ai.melltron.build ──▶ Worker melltron-ai ─┬▶ ollam
 
 - **Two backends, one picker.** Desktop models keep their Ollama names; Pi models are listed as `hailo/<name>` and the Worker strips the prefix before forwarding. `/api/models` lists every configured backend and still answers when one is offline (`backends` says which). The Pi backend is off when `HAILO_URL` is empty.
 
-- **Public, rate-limited.** With `PUBLIC="true"` (the default in `wrangler.jsonc`) anyone can chat, with no login. Each IP gets 10 chats and 30 model listings a minute (`CHAT_LIMIT`, `MODELS_LIMIT` rate-limit bindings); public mode fails closed (503) if those bindings are missing.
+- **Public, with a prompt quota.** With `PUBLIC="true"` (the default in `wrangler.jsonc`) anyone can open the app, with no login (`src/quota.js`):
+  - **Tailnet devices are unlimited.** Opening the pass page (`http://<pass host's Tailscale IP>:8787/`, see *Tailnet pass* below) on a tailnet device redirects back here with a signed 30-day pass that the browser keeps.
+  - **Everyone else gets `FREE_PROMPTS` (10) chats**, counted per browser (a random id kept in `localStorage`) and per IP, so clearing the browser doesn't reset them. Only chats the model started answering count.
+  - **Then they ask the owner.** The page shows a name + note form; requests land on **`/admin`** (owner-only Access app), where the owner can approve (unlimited), deny, or reset (back to 10 free).
+  - Counts and requests live in D1 (`DB`, database `melltron-ai`); tables are created on first use. Public mode fails closed (503) without `DB` or the rate-limit bindings.
+  - `CHAT_LIMIT` / `MODELS_LIMIT` (10 and 30 a minute per IP) are an extra brake. Cloudflare's rate limiter is approximate and didn't block a test burst in practice; the quota is what holds.
 - **The tunnels stay private.** `ollama-tunnel.melltron.build` and `hailo-tunnel.melltron.build` admit only the service token stored as Worker secrets, so no browser can reach Ollama or hailo-ollama directly, and pull/delete stay unreachable.
 - **Private mode.** Set `PUBLIC` to `""`, put an Access app in front of `ai.melltron.build`, and the Worker re-verifies the Access JWT on every `/api/*` call (`src/access.js`). That check matters because Workers preview URLs bypass the custom-domain Access app. It fails closed (503) until `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD` are set.
 - **Narrow proxy.** Only `GET /api/tags`, `POST /api/show` and `POST /api/chat` are called upstream. Requests are rebuilt from validated fields (`model`, `messages[].role/content`, `think`), so pull/delete/create and request options like `keep_alive` can't be reached.
@@ -26,15 +31,32 @@ browser ──▶ ai.melltron.build ──▶ Worker melltron-ai ─┬▶ ollam
 | `GET /_health`, `GET /api/ping` | public | version / liveness |
 | `GET /api/me` | gate | `{email, public}` (email is null when public) |
 | `GET /api/models` | gate + 30/min | `{models: [{name, backend, parameters, thinking, …}], backends: {desktop, hailo}}` |
-| `POST /api/chat` | gate + 10/min | `{model, messages, think?}` → Ollama NDJSON stream |
+| `GET /api/quota` | gate | `{tier, used, limit, remaining, requested, device, passInvalid}`; tier is `tailnet`, `approved`, `free`, `exhausted`, `pending`, `denied` or `private` |
+| `POST /api/access-request` | gate | `{name, note?}` → asks the owner for more prompts |
+| `GET /api/admin/visitors` | admin Access | visitors, pending first |
+| `POST /api/admin/visitors` | admin Access | `{id, action: approve\|deny\|reset}` |
+| `POST /api/chat` | gate + quota + 10/min | `{model, messages, think?}` → Ollama NDJSON stream |
 
-Errors are JSON `{error, backend?}`: `offline` (that machine or its server is down), `tunnel_auth` (service token refused), `not_configured`, `access_not_configured`, `unauthenticated`, `rate_limited` (429), `rate_limit_not_configured`, `upstream` (+`detail`). "gate" is nothing when public, the Access JWT otherwise.
+Errors are JSON `{error, backend?}`: `offline` (that machine or its server is down), `tunnel_auth` (service token refused), `not_configured`, `access_not_configured`, `unauthenticated`, `quota_exhausted` / `denied` (403, with `quota`), `visitor_required`, `quota_not_configured`, `rate_limited` (429), `rate_limit_not_configured`, `upstream` (+`detail`). "gate" is nothing when public, the Access JWT otherwise. Public calls send `x-ai-visitor` (and `x-ai-pass` on tailnet browsers).
 
 ## Configuration
 
-`wrangler.jsonc` → `vars`: `PUBLIC` (`"true"` = no login), `OLLAMA_URL`, `HAILO_URL` (empty disables the Pi), `ACCESS_TEAM_DOMAIN` (e.g. `mellon.cloudflareaccess.com`), `ACCESS_AUD` (the `ai.melltron.build` Access application's AUD tag).
+`wrangler.jsonc` → `vars`: `PUBLIC` (`"true"` = no login), `FREE_PROMPTS`, `ADMIN_ACCESS_AUD` (AUD of the owner-only Access app on `ai.melltron.build/admin` + `/api/admin`), `OLLAMA_URL`, `HAILO_URL` (empty disables the Pi), `ACCESS_TEAM_DOMAIN` (e.g. `mellon.cloudflareaccess.com`), `ACCESS_AUD` (the `ai.melltron.build` Access application's AUD tag).
 
-Secrets: `wrangler secret put OLLAMA_CLIENT_ID` and `OLLAMA_CLIENT_SECRET` (the Access service token, admitted by both tunnels).
+Secrets: `wrangler secret put OLLAMA_CLIENT_ID` and `OLLAMA_CLIENT_SECRET` (the Access service token, admitted by both tunnels), and `PASS_SECRET` (signs tailnet passes; without it nobody gets a pass and everyone is on the free tier).
+
+### Tailnet pass
+
+`tools/tailnet-pass.py` (standard-library Python, needs the `tailscale` CLI) runs on any always-on machine in the tailnet and listens only on that machine's Tailscale address (port 8787), so only tailnet devices can reach it. It checks the caller with `tailscale whois`, then redirects to `https://ai.melltron.build/#pass=<token>`. Set `PASS_USERS=login1,login2` to limit passes to some tailnet users (by default anyone on the tailnet gets one, including users who shared a device in).
+
+```sh
+install -Dm755 tools/tailnet-pass.py ~/.local/bin/tailnet-pass
+umask 077; mkdir -p ~/.config/ai-pass
+python3 -c 'import secrets; print(secrets.token_urlsafe(48))' > ~/.config/ai-pass/secret
+tr -d '\n' < ~/.config/ai-pass/secret | npx wrangler secret put PASS_SECRET --name melltron-ai
+cp tools/tailnet-pass.service ~/.config/systemd/user/
+systemctl --user enable --now tailnet-pass
+```
 
 ### Desktop tunnel (cloudflared)
 

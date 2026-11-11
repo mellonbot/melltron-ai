@@ -19,7 +19,7 @@
   "workers_dev": false,
   "preview_urls": true,
   "previews": {},
-  // Non-secret config. Secrets (wrangler secret put): OLLAMA_CLIENT_ID, OLLAMA_CLIENT_SECRET
+  // Non-secret config. Secrets (wrangler secret put): OLLAMA_CLIENT_ID, OLLAMA_CLIENT_SECRET, PASS_SECRET (signs tailnet passes)
   // (the Access service token admitted by the Ollama and Hailo tunnels). Empty values fail closed.
   "vars": {
     "OLLAMA_URL": "https://ollama-tunnel.melltron.build",
@@ -27,9 +27,15 @@
     "HAILO_URL": "https://hailo-tunnel.melltron.build",
     // Open to anyone, no Access login. Needs the rate limits below (fails closed without).
     "PUBLIC": "true",
+    // Free chats per visitor (and per IP) before the owner has to approve them.
+    "FREE_PROMPTS": "10",
+    // AUD of the "AI admin" Access app covering /admin and /api/admin (owner only).
+    "ADMIN_ACCESS_AUD": "a8175735d7d0ea7ff901a760fef17bef932ae23edd7f12c3866c471d4e52e9d7",
     "ACCESS_TEAM_DOMAIN": "fancy-smoke-ad49.cloudflareaccess.com",
     "ACCESS_AUD": "ed4b66ee811bef7c3c9e7d1960a2a4ecda65a1e98836b8bf6ab6a62bdbdd6f7d"
   },
+  // Visitor prompt counts and access requests (src/quota.js).
+  "d1_databases": [{ "binding": "DB", "database_name": "melltron-ai", "database_id": "5788891a-23fd-432e-8f31-82acaf46acd6" }],
   // Per-IP limits (key: CF-Connecting-IP). Chat is what costs GPU / HAT time.
   "ratelimits": [
     { "name": "CHAT_LIMIT", "namespace_id": "3001", "simple": { "limit": 10, "period": 60 } },

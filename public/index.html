@@ -40,11 +40,21 @@
     <section id="log" class="log" aria-live="polite">
       <div id="empty" class="empty">
         <p class="big">Local models, on demand.</p>
-        <p>Chats run on Ollama on the lab desktop's GPU and stream back here. Conversations are saved in this browser only.</p>
+        <p>Chats run on the lab desktop's GPU or a Raspberry Pi's Hailo-10H and stream back here. Conversations are saved in this browser only.</p>
+        <p id="empty-quota" hidden></p>
       </div>
     </section>
 
     <div id="notice" class="notice" hidden></div>
+
+    <form id="request" class="request" hidden>
+      <p id="request-text"><strong>You've used your free prompts.</strong> Ask the owner for more: they'll see your name and note.</p>
+      <label>Name <input id="request-name" maxlength="60" autocomplete="name" required></label>
+      <label>Note <span class="dim">(optional)</span> <textarea id="request-note" maxlength="500" rows="2" placeholder="Who you are, what you'd like to use it for"></textarea></label>
+      <div class="request-actions"><button id="request-send" class="btn primary" type="submit">Request access</button><span id="request-status" class="dim" role="status"></span></div>
+    </form>
+
+    <div id="quota" class="quota" hidden></div>
 
     <form id="composer" class="composer">
       <label class="sr" for="input">Message</label>
