@@ -23,8 +23,8 @@
   // (the Access service token admitted by the Ollama tunnel). Empty values fail closed.
   "vars": {
     "OLLAMA_URL": "https://ollama-tunnel.melltron.build",
-    "ACCESS_TEAM_DOMAIN": "",
-    "ACCESS_AUD": ""
+    "ACCESS_TEAM_DOMAIN": "fancy-smoke-ad49.cloudflareaccess.com",
+    "ACCESS_AUD": "ed4b66ee811bef7c3c9e7d1960a2a4ecda65a1e98836b8bf6ab6a62bdbdd6f7d"
   },
   "version_metadata": { "binding": "CF_VERSION_METADATA" },
   "observability": { "enabled": true }
