@@ -12,6 +12,7 @@ browser ──▶ ai.melltron.build ──▶ Worker melltron-ai ──▶ ollam
 - **Two Access gates.** `ai.melltron.build` requires the owner's login. `ollama-tunnel.melltron.build` admits only the service token stored as Worker secrets, so no browser can reach Ollama directly.
 - **The Worker re-verifies the Access JWT** on every `/api/*` call (`src/access.js`). Workers preview URLs bypass the custom-domain Access app, so without this check a preview build would be an open proxy to the GPU. It fails closed (503) until `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD` are set.
 - **Narrow proxy.** Only `GET /api/tags`, `POST /api/show` and `POST /api/chat` are called upstream. Requests are rebuilt from validated fields (`model`, `messages[].role/content`, `think`), so pull/delete/create and request options like `keep_alive` can't be reached.
+- **English by default.** Chats without a system message get one asking for English (deepseek-r1 otherwise answers short prompts in Chinese). Override with the `SYSTEM_PROMPT` var.
 - **Conversations live in the browser** (`localStorage`); nothing is stored server-side.
 
 ## API

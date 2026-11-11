@@ -18,6 +18,12 @@ export const LIMITS = { bodyBytes: 512 * 1024, messages: 400, contentChars: 100_
 const MODEL = /^[A-Za-z0-9][A-Za-z0-9._:\/-]{0,127}$/;
 const ROLES = new Set(["system", "user", "assistant"]);
 
+// Prepended when a conversation has no system message. Without it deepseek-r1
+// answers short prompts ("hi") in Chinese, reasoning included. Override with the
+// SYSTEM_PROMPT var.
+export const DEFAULT_SYSTEM =
+  "You are a helpful assistant. Always think and respond in English, unless the user explicitly writes in or asks for another language.";
+
 // Wraps a handler so it only runs for a verified Access user.
 const gated = (handler) => async (request, env, ctx, url) => {
   const who = await verifyAccess(request, env, env.__fetch ?? fetch);
@@ -118,7 +124,10 @@ async function chat(request, env) {
   const v = validateChat(body);
   if (typeof v === "string") return json({ error: "bad_request", detail: v }, { status: 400 });
 
-  const payload = { model: v.model, messages: v.messages, stream: true };
+  const messages = v.messages.some((m) => m.role === "system")
+    ? v.messages
+    : [{ role: "system", content: (env.SYSTEM_PROMPT || "").trim() || DEFAULT_SYSTEM }, ...v.messages];
+  const payload = { model: v.model, messages, stream: true };
   if (v.think) payload.think = true;
   const res = await call(env, "/api/chat", { method: "POST", body: JSON.stringify(payload), signal: request.signal });
   if (!res?.ok) return upstreamError(res);

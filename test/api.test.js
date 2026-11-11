@@ -4,7 +4,7 @@ import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import worker from "../src/index.js";
 import { _resetAccessCache } from "../src/access.js";
-import { validateChat, LIMITS } from "../src/api.js";
+import { validateChat, LIMITS, DEFAULT_SYSTEM } from "../src/api.js";
 
 const TEAM = "lab.cloudflareaccess.com";
 const AUD = "aud-123";
@@ -129,7 +129,7 @@ test("/api/chat streams NDJSON through and only forwards clean fields", async ()
   assert.ok(res.headers.get("Content-Security-Policy"));
   assert.match(await res.text(), /"llo"/);
   const sent = JSON.parse(calls.find((c) => c.path === "/api/chat").init.body);
-  assert.deepEqual(sent, { model: "llama3.1:8b", messages: [{ role: "user", content: "hi" }], stream: true, think: true });
+  assert.deepEqual(sent, { model: "llama3.1:8b", messages: [{ role: "system", content: DEFAULT_SYSTEM }, { role: "user", content: "hi" }], stream: true, think: true });
 });
 
 test("only tags/show/chat are ever proxied", async () => {
@@ -186,4 +186,15 @@ test("missing tunnel config is reported, not attempted", async () => {
   assert.equal(res.status, 503);
   assert.equal((await res.json()).error, "not_configured");
   assert.equal(calls.length, 0);
+});
+
+test("default English system prompt: added when absent, configurable, never duplicated", async () => {
+  const sentMessages = () => JSON.parse(calls.findLast((c) => c.path === "/api/chat").init.body).messages;
+  await req("/api/chat", { method: "POST", body: chatBody });
+  assert.equal(sentMessages()[0].content, DEFAULT_SYSTEM);
+  await req("/api/chat", { method: "POST", body: chatBody, e: { ...env, SYSTEM_PROMPT: "Be terse." } });
+  assert.deepEqual(sentMessages()[0], { role: "system", content: "Be terse." });
+  const own = { ...chatBody, messages: [{ role: "system", content: "Pirate voice." }, ...chatBody.messages] };
+  await req("/api/chat", { method: "POST", body: own });
+  assert.deepEqual(sentMessages().filter((m) => m.role === "system"), [{ role: "system", content: "Pirate voice." }]);
 });
