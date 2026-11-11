@@ -6,7 +6,7 @@ LAB-003. Chat with the lab's own models from any browser: models served by Local
 
 ```
 browser ──▶ ai.melltron.build ──▶ Worker melltron-ai ─┬▶ localai-tunnel.melltron.build ──▶ cloudflared (desktop) ──▶ LocalAI 127.0.0.1:8090
-                                                         ├▶ ollama-tunnel.melltron.build  ──▶ cloudflared (desktop) ──▶ Ollama 127.0.0.1:11434   [retired]
+                                                         ├▶ ollama-tunnel.melltron.build  ──▶ cloudflared (Pi)      ──▶ hailo-ollama 127.0.0.1:11434   [alias, unused by the Worker]
             [public, no login]      [per-IP rate limit]   └▶ hailo-tunnel.melltron.build  ──▶ cloudflared (Pi)      ──▶ hailo-ollama 127.0.0.1:11434
                                                              [Access: service token only, both]
 ```
@@ -20,7 +20,7 @@ browser ──▶ ai.melltron.build ──▶ Worker melltron-ai ─┬▶ local
   - **The owner gets an email** for each new request (`src/alert.js`): `ALERT_EMAIL` send_email binding, from `ALERT_FROM` (`ai@melltron.build`, an Email Sending domain) to the `ALERT_TO` secret (a verified destination address on the account). At most `ALERT_MAX_PER_HOUR` (10) alerts an hour; editing a pending request doesn't re-send. Without the binding or secret, requests still work, just silently.
   - Counts and requests live in D1 (`DB`, database `melltron-ai`); tables are created on first use. Public mode fails closed (503) without `DB` or the rate-limit bindings.
   - `CHAT_LIMIT` / `MODELS_LIMIT` (10 and 30 a minute per IP) are an extra brake. Cloudflare's rate limiter is approximate and didn't block a test burst in practice; the quota is what holds.
-- **The tunnels stay private.** `ollama-tunnel.melltron.build` and `hailo-tunnel.melltron.build` admit only the service token stored as Worker secrets, so no browser can reach Ollama or hailo-ollama directly, and pull/delete stay unreachable.
+- **The tunnels stay private.** `localai-tunnel`, `hailo-tunnel` and `ollama-tunnel.melltron.build` admit only the service token stored as Worker secrets, so no browser can reach Ollama or hailo-ollama directly, and pull/delete stay unreachable.
 - **Private mode.** Set `PUBLIC` to `""`, put an Access app in front of `ai.melltron.build`, and the Worker re-verifies the Access JWT on every `/api/*` call (`src/access.js`). That check matters because Workers preview URLs bypass the custom-domain Access app. It fails closed (503) until `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD` are set.
 - **LocalAI speaks the OpenAI API; the browser never sees it.** The Worker calls only `GET /v1/models` and `POST /v1/chat/completions` (`stream: true`) and translates the SSE stream to Ollama's NDJSON (`sseToNdjson` in `src/api.js`): `delta.content` → `message.content`, `delta.reasoning_content`/`reasoning` → `message.thinking`, `[DONE]` → `{done: true}`. `LOCALAI_MODELS` (comma-separated ids) limits what's offered, since `/v1/models` also lists embedding/TTS/image models; chats to other ids are refused (400) before reaching the desktop. Optional `LOCALAI_API_KEY` secret is sent as `Authorization: Bearer` (matches LocalAI's `API_KEY`), a second lock behind the tunnel's service token.
 - **Narrow proxy.** Only `GET /api/tags`, `POST /api/show` and `POST /api/chat` (Ollama) or the two `/v1` routes above (LocalAI) are called upstream. Requests are rebuilt from validated fields (`model`, `messages[].role/content`, `think`), so pull/delete/create and request options like `keep_alive` can't be reached.
@@ -63,7 +63,7 @@ systemctl --user enable --now tailnet-pass
 
 ### Desktop tunnel (cloudflared)
 
-Serves LocalAI (current) and Ollama (retired Nov 2026; to bring it back, add the `ollama-tunnel` hostname below and set `OLLAMA_URL` to `https://ollama-tunnel.melltron.build`).
+Serves LocalAI only. Desktop Ollama was retired in Nov 2026 and `ollama-tunnel.melltron.build` moved to the `hailo-pi` tunnel (→ hailo-ollama on `:11434`) for other LAN/tunnel clients. **Keep `OLLAMA_URL` empty:** pointing it at `ollama-tunnel` would list the Pi's models a second time under the desktop label.
 
 Both tunnels are remotely managed (ingress lives in the dashboard / API, not a local config.yml). On the desktop, cloudflared runs as a user process (`~/.local/bin/cloudflared tunnel run --token-file ~/.config/cloudflared/tunnel-token`), not the `cloudflared` system service.
 
@@ -85,7 +85,7 @@ docker run -d --name localai --restart unless-stopped --gpus all -p 127.0.0.1:80
 4. Add an Access application for `localai-tunnel.melltron.build` with the single **Service Auth** policy (same service token as the other tunnels).
 5. Keep `LOCALAI_MODELS` in `wrangler.jsonc` in step with the chat model ids in `/v1/models`.
 
-#### Ollama (retired)
+#### Ollama (retired; original setup, for reference)
 
 Cloudflare Zero Trust → Networks → Tunnels → create `mellonlab-office`, install the connector on the desktop as a service, and add the public hostname:
 

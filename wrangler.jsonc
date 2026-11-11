@@ -22,8 +22,8 @@
   // Non-secret config. Secrets (wrangler secret put): OLLAMA_CLIENT_ID, OLLAMA_CLIENT_SECRET, LOCALAI_API_KEY (optional, LocalAI API_KEY), PASS_SECRET (signs tailnet passes), ALERT_TO (owner's email for access-request alerts)
   // (the Access service token admitted by the Ollama and Hailo tunnels). Empty values fail closed.
   "vars": {
-    // Ollama on the office desktop. Off: its tunnel (mellonlab-office) is disabled.
-    // Set back to "https://ollama-tunnel.melltron.build" once the tunnel is re-enabled.
+    // Ollama on the office desktop: retired. Keep empty. ollama-tunnel.melltron.build now
+    // routes to hailo-ollama on the Pi, so setting it here would duplicate the Pi models.
     "OLLAMA_URL": "",
     // LocalAI on the office desktop (RTX 4060), 127.0.0.1:8090, via tunnel mellonlab-office.
     // Same service token; empty disables it. Models appear as "rtx/<id>".
