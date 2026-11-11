@@ -180,15 +180,20 @@ function showNotice(text, withReload) {
   els.notice.hidden = false;
 }
 
+const BACKEND_LABEL = { desktop: "Desktop · RTX 4060", hailo: "Pi · Hailo-10H" };
+const OFFLINE = {
+  desktop: "The lab desktop is offline, or Ollama isn't running on it.",
+  hailo: "The Pi is offline, or hailo-ollama isn't running on it.",
+};
 const ERRORS = {
-  offline: "The lab desktop is offline, or Ollama isn't running on it.",
+  offline: OFFLINE.desktop,
   tunnel_auth: "The tunnel refused the Worker's service token. Check OLLAMA_CLIENT_ID / OLLAMA_CLIENT_SECRET.",
   not_configured: "The Worker isn't connected to Ollama yet (OLLAMA_URL or tunnel token missing).",
   access_not_configured: "Access verification isn't configured on the Worker yet (ACCESS_TEAM_DOMAIN / ACCESS_AUD).",
   unauthenticated: "Your sign-in has expired.",
   too_large: "This conversation is too long to send. Start a new chat.",
 };
-const explain = (e) => ERRORS[e.error] || (e.detail ? `Ollama: ${e.detail}` : `Request failed (${e.error || "unknown"}).`);
+const explain = (e) => (e.error === "offline" && OFFLINE[e.backend]) || ERRORS[e.error] || (e.detail ? `Ollama: ${e.detail}` : `Request failed (${e.error || "unknown"}).`);
 
 // ---------- API ----------
 async function api(path, init) {
@@ -202,7 +207,7 @@ async function api(path, init) {
   if (res.ok) return res;
   let body = {};
   try { body = await res.json(); } catch {}
-  const e = new Error(explain(body)); e.code = body.error; e.reauth = body.error === "unauthenticated"; throw e;
+  const e = new Error(explain(body)); e.code = body.error; e.backend = body.backend; e.reauth = body.error === "unauthenticated"; throw e;
 }
 
 async function loadModels() {
@@ -211,12 +216,22 @@ async function loadModels() {
     const data = await (await api("/api/models")).json();
     models = data.models || [];
     els.model.replaceChildren();
+    // One group per machine, desktop first.
+    const groups = new Map();
     for (const m of models) {
+      const k = m.backend || "desktop";
+      if (!groups.has(k)) {
+        const g = document.createElement("optgroup");
+        g.label = BACKEND_LABEL[k] || k;
+        groups.set(k, g);
+      }
       const o = document.createElement("option");
       o.value = m.name;
-      o.textContent = m.parameters ? `${m.name}  ·  ${m.parameters}` : m.name;
-      els.model.append(o);
+      const label = m.name.replace(/^hailo\//, "");
+      o.textContent = m.parameters ? `${label}  ·  ${m.parameters}` : label;
+      groups.get(k).append(o);
     }
+    for (const k of ["desktop", "hailo", ...groups.keys()]) if (groups.has(k)) { els.model.append(groups.get(k)); groups.delete(k); }
     if (!models.length) {
       els.model.append(new Option("No models installed"));
       setStatus("error", "No models");
@@ -225,13 +240,15 @@ async function loadModels() {
     const want = current()?.model || store.get(KEY.model, null);
     if (want && models.some((m) => m.name === want)) els.model.value = want;
     els.model.disabled = false;
-    setStatus("online", `Online · ${models.length} model${models.length === 1 ? "" : "s"}`);
-    els.notice.hidden = true;
+    const down = Object.entries(data.backends || {}).filter(([, s]) => s !== "online").map(([k]) => k);
+    setStatus(down.length ? "partial" : "online", `Online · ${models.length} model${models.length === 1 ? "" : "s"}`);
+    if (down.length) showNotice(down.map((k) => OFFLINE[k] || `${k} is unavailable.`).join(" ") + " Its models are hidden for now.");
+    else els.notice.hidden = true;
     updateThink();
   } catch (err) {
     els.model.replaceChildren(new Option("Unavailable"));
     els.model.disabled = true;
-    setStatus(err.code === "offline" ? "offline" : "error", err.code === "offline" ? "Desktop offline" : "Unavailable");
+    setStatus(err.code === "offline" ? "offline" : "error", err.code === "offline" ? "Lab offline" : "Unavailable");
     showNotice(err.message, err.reauth);
   }
   updateSend();
@@ -251,6 +268,17 @@ function updateSend() {
 }
 
 function autosize() { els.input.style.height = "auto"; els.input.style.height = Math.min(els.input.scrollHeight, innerHeight * 0.4) + "px"; }
+
+// Some models (deepseek-r1 on hailo-ollama) put their reasoning inline as
+// <think>…</think> instead of a separate field. Split it out while streaming.
+function splitThink(reply, raw) {
+  const t = raw.trimStart();
+  if (!t.startsWith("<think>")) { reply.content = raw; return; }
+  const end = t.indexOf("</think>");
+  if (end < 0) { reply.thinking = t.slice(7); reply.content = ""; return; }
+  reply.thinking = t.slice(7, end);
+  reply.content = t.slice(end + 8).trimStart();
+}
 
 async function send() {
   const text = els.input.value.trim();
@@ -295,7 +323,7 @@ async function send() {
     });
     const reader = res.body.getReader();
     const dec = new TextDecoder();
-    let buf = "";
+    let buf = "", raw = "";
     for (;;) {
       const { value, done } = await reader.read();
       if (done) break;
@@ -307,7 +335,7 @@ async function send() {
         let evt; try { evt = JSON.parse(line); } catch { continue; }
         if (evt.error) throw new Error(`Ollama: ${evt.error}`);
         if (evt.message?.thinking) reply.thinking += evt.message.thinking;
-        if (evt.message?.content) reply.content += evt.message.content;
+        if (evt.message?.content) { raw += evt.message.content; splitThink(reply, raw); }
         if (evt.done && evt.eval_count && evt.eval_duration) {
           const tps = evt.eval_count / (evt.eval_duration / 1e9);
           reply.meta = `${evt.eval_count} tokens · ${tps.toFixed(1)} tok/s`;
@@ -321,7 +349,7 @@ async function send() {
     else {
       reply.error = err.message;
       if (err.reauth) showNotice(err.message, true);
-      if (err.code === "offline") { setStatus("offline", "Desktop offline"); }
+      if (err.code === "offline") { setStatus("offline", err.backend === "hailo" ? "Pi offline" : "Desktop offline"); }
     }
   } finally {
     reply.streaming = false; // failed turns stay visible but are filtered out of history
