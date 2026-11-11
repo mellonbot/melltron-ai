@@ -20,9 +20,11 @@
   "preview_urls": true,
   "previews": {},
   // Non-secret config. Secrets (wrangler secret put): OLLAMA_CLIENT_ID, OLLAMA_CLIENT_SECRET
-  // (the Access service token admitted by the Ollama tunnel). Empty values fail closed.
+  // (the Access service token admitted by the Ollama and Hailo tunnels). Empty values fail closed.
   "vars": {
     "OLLAMA_URL": "https://ollama-tunnel.melltron.build",
+    // hailo-ollama on the Pi (Hailo-10H). Same service token; empty disables it.
+    "HAILO_URL": "https://hailo-tunnel.melltron.build",
     "ACCESS_TEAM_DOMAIN": "fancy-smoke-ad49.cloudflareaccess.com",
     "ACCESS_AUD": "ed4b66ee811bef7c3c9e7d1960a2a4ecda65a1e98836b8bf6ab6a62bdbdd6f7d"
   },

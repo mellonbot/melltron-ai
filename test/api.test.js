@@ -198,3 +198,70 @@ test("default English system prompt: added when absent, configurable, never dupl
   await req("/api/chat", { method: "POST", body: own });
   assert.deepEqual(sentMessages().filter((m) => m.role === "system"), [{ role: "system", content: "Pirate voice." }]);
 });
+
+// ---------- second backend: hailo-ollama on the Pi ----------
+const hailoEnv = { ...env, HAILO_URL: "https://hailo-tunnel.example" };
+// Routes fake upstream calls by host so each backend can be up or down on its own.
+const byHost = (desktop, hailo) => async (input, init = {}) => {
+  const url = new URL(input);
+  if (url.host === TEAM) return fakeFetch(input, init);
+  calls.push({ host: url.host, path: url.pathname, init });
+  return (url.host === "hailo-tunnel.example" ? hailo : desktop)(url.pathname, init);
+};
+const hailoUp = (path) => {
+  if (path === "/api/tags") return Response.json({ models: [{ name: "qwen2:1.5b", size: 3, details: { parameter_size: "1.5B", family: "qwen2" } }] });
+  if (path === "/api/chat") return new Response('{"message":{"content":"pi"},"done":true}\n');
+  return new Response("nope", { status: 404 });
+};
+const down = () => new Response("", { status: 530 });
+
+test("/api/models merges both backends, prefixing Pi models and skipping /api/show for them", async () => {
+  const res = await req("/api/models", { e: { ...hailoEnv, __fetch: byHost((p, i) => ollama(p, i), hailoUp) } });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.deepEqual(body.models.map((m) => [m.name, m.backend]), [["deepseek-r1:8b", "desktop"], ["hailo/qwen2:1.5b", "hailo"], ["llama3.1:8b", "desktop"]]);
+  assert.deepEqual(body.backends, { desktop: "online", hailo: "online" });
+  assert.ok(!calls.some((c) => c.host === "hailo-tunnel.example" && c.path === "/api/show"));
+  for (const c of calls.filter((c) => c.host === "hailo-tunnel.example")) assert.equal(c.init.headers["CF-Access-Client-Id"], "cid");
+});
+
+test("one backend offline still lists the other; both offline fails", async () => {
+  let res = await quiet(() => req("/api/models", { e: { ...hailoEnv, __fetch: byHost(down, hailoUp) } }));
+  assert.equal(res.status, 200);
+  let body = await res.json();
+  assert.deepEqual(body.models.map((m) => m.name), ["hailo/qwen2:1.5b"]);
+  assert.deepEqual(body.backends, { desktop: "offline", hailo: "online" });
+
+  res = await quiet(() => req("/api/models", { e: { ...hailoEnv, __fetch: byHost(down, down) } }));
+  assert.equal(res.status, 503);
+  body = await res.json();
+  assert.equal(body.error, "offline");
+  assert.deepEqual(body.backends, { desktop: "offline", hailo: "offline" });
+});
+
+test("hailo/ models route to the Pi with the prefix stripped and no think flag", async () => {
+  const e = { ...hailoEnv, __fetch: byHost((p, i) => ollama(p, i), hailoUp) };
+  const res = await req("/api/chat", { method: "POST", body: { ...chatBody, model: "hailo/qwen2:1.5b", think: true }, e });
+  assert.equal(res.status, 200);
+  assert.match(await res.text(), /"pi"/);
+  const c = calls.find((c) => c.path === "/api/chat");
+  assert.equal(c.host, "hailo-tunnel.example");
+  const sent = JSON.parse(c.init.body);
+  assert.equal(sent.model, "qwen2:1.5b");
+  assert.equal(sent.think, undefined);
+});
+
+test("Pi failures name the backend; unconfigured Pi is not_configured", async () => {
+  let res = await quiet(() => req("/api/chat", { method: "POST", body: { ...chatBody, model: "hailo/qwen2:1.5b" }, e: { ...hailoEnv, __fetch: byHost(down, down) } }));
+  assert.equal(res.status, 503);
+  assert.deepEqual(await res.json(), { error: "offline", backend: "hailo" });
+
+  calls = [];
+  res = await req("/api/chat", { method: "POST", body: { ...chatBody, model: "hailo/qwen2:1.5b" } });
+  assert.equal(res.status, 503);
+  assert.equal((await res.json()).error, "not_configured");
+  assert.equal(calls.length, 0);
+
+  res = await req("/api/chat", { method: "POST", body: { ...chatBody, model: "hailo/" }, e: hailoEnv });
+  assert.equal(res.status, 400);
+});

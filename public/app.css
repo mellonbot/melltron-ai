@@ -36,7 +36,7 @@ button, select, textarea, input { font: inherit; color: inherit; }
 .status i { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); }
 .status[data-state="online"] i { background: var(--ok); }
 .status[data-state="offline"] i, .status[data-state="error"] i { background: var(--bad); }
-.status[data-state="checking"] i { background: var(--warn); }
+.status[data-state="checking"] i, .status[data-state="partial"] i { background: var(--warn); }
 .who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* main */
