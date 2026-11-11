@@ -6,14 +6,15 @@ LAB-003. Chat with the lab's own models from any browser: Ollama models (llama3.
 
 ```
 browser ──▶ ai.melltron.build ──▶ Worker melltron-ai ─┬▶ ollama-tunnel.melltron.build ──▶ cloudflared (desktop) ──▶ Ollama 127.0.0.1:11434
-            [Access: owner login]   [verifies Access JWT] └▶ hailo-tunnel.melltron.build  ──▶ cloudflared (Pi)      ──▶ hailo-ollama 127.0.0.1:8000
+            [public, no login]      [per-IP rate limit]   └▶ hailo-tunnel.melltron.build  ──▶ cloudflared (Pi)      ──▶ hailo-ollama 127.0.0.1:8000
                                                              [Access: service token only, both]
 ```
 
 - **Two backends, one picker.** Desktop models keep their Ollama names; Pi models are listed as `hailo/<name>` and the Worker strips the prefix before forwarding. `/api/models` lists every configured backend and still answers when one is offline (`backends` says which). The Pi backend is off when `HAILO_URL` is empty.
 
-- **Two Access gates.** `ai.melltron.build` requires the owner's login. `ollama-tunnel.melltron.build` and `hailo-tunnel.melltron.build` admit only the service token stored as Worker secrets, so no browser can reach Ollama directly.
-- **The Worker re-verifies the Access JWT** on every `/api/*` call (`src/access.js`). Workers preview URLs bypass the custom-domain Access app, so without this check a preview build would be an open proxy to the GPU. It fails closed (503) until `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD` are set.
+- **Public, rate-limited.** With `PUBLIC="true"` (the default in `wrangler.jsonc`) anyone can chat, with no login. Each IP gets 10 chats and 30 model listings a minute (`CHAT_LIMIT`, `MODELS_LIMIT` rate-limit bindings); public mode fails closed (503) if those bindings are missing.
+- **The tunnels stay private.** `ollama-tunnel.melltron.build` and `hailo-tunnel.melltron.build` admit only the service token stored as Worker secrets, so no browser can reach Ollama or hailo-ollama directly, and pull/delete stay unreachable.
+- **Private mode.** Set `PUBLIC` to `""`, put an Access app in front of `ai.melltron.build`, and the Worker re-verifies the Access JWT on every `/api/*` call (`src/access.js`). That check matters because Workers preview URLs bypass the custom-domain Access app. It fails closed (503) until `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD` are set.
 - **Narrow proxy.** Only `GET /api/tags`, `POST /api/show` and `POST /api/chat` are called upstream. Requests are rebuilt from validated fields (`model`, `messages[].role/content`, `think`), so pull/delete/create and request options like `keep_alive` can't be reached.
 - **English by default.** Chats without a system message get one asking for English (deepseek-r1 otherwise answers short prompts in Chinese). Override with the `SYSTEM_PROMPT` var.
 - **Conversations live in the browser** (`localStorage`); nothing is stored server-side.
@@ -23,15 +24,15 @@ browser ──▶ ai.melltron.build ──▶ Worker melltron-ai ─┬▶ ollam
 | Route | Auth | Purpose |
 |---|---|---|
 | `GET /_health`, `GET /api/ping` | public | version / liveness |
-| `GET /api/me` | Access | signed-in email |
-| `GET /api/models` | Access | `{models: [{name, backend, parameters, thinking, …}], backends: {desktop, hailo}}` |
-| `POST /api/chat` | Access | `{model, messages, think?}` → Ollama NDJSON stream |
+| `GET /api/me` | gate | `{email, public}` (email is null when public) |
+| `GET /api/models` | gate + 30/min | `{models: [{name, backend, parameters, thinking, …}], backends: {desktop, hailo}}` |
+| `POST /api/chat` | gate + 10/min | `{model, messages, think?}` → Ollama NDJSON stream |
 
-Errors are JSON `{error, backend?}`: `offline` (that machine or its server is down), `tunnel_auth` (service token refused), `not_configured`, `access_not_configured`, `unauthenticated`, `upstream` (+`detail`).
+Errors are JSON `{error, backend?}`: `offline` (that machine or its server is down), `tunnel_auth` (service token refused), `not_configured`, `access_not_configured`, `unauthenticated`, `rate_limited` (429), `rate_limit_not_configured`, `upstream` (+`detail`). "gate" is nothing when public, the Access JWT otherwise.
 
 ## Configuration
 
-`wrangler.jsonc` → `vars`: `OLLAMA_URL`, `HAILO_URL` (empty disables the Pi), `ACCESS_TEAM_DOMAIN` (e.g. `mellon.cloudflareaccess.com`), `ACCESS_AUD` (the `ai.melltron.build` Access application's AUD tag).
+`wrangler.jsonc` → `vars`: `PUBLIC` (`"true"` = no login), `OLLAMA_URL`, `HAILO_URL` (empty disables the Pi), `ACCESS_TEAM_DOMAIN` (e.g. `mellon.cloudflareaccess.com`), `ACCESS_AUD` (the `ai.melltron.build` Access application's AUD tag).
 
 Secrets: `wrangler secret put OLLAMA_CLIENT_ID` and `OLLAMA_CLIENT_SECRET` (the Access service token, admitted by both tunnels).
 

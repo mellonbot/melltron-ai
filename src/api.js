@@ -28,10 +28,29 @@ const ROLES = new Set(["system", "user", "assistant"]);
 export const DEFAULT_SYSTEM =
   "You are a helpful assistant. Always think and respond in English, unless the user explicitly writes in or asks for another language.";
 
-// Wraps a handler so it only runs for a verified Access user.
-const gated = (handler) => async (request, env, ctx, url) => {
-  const who = await verifyAccess(request, env, env.__fetch ?? fetch);
-  if (!who.ok) return json({ error: who.error }, { status: who.status });
+// PUBLIC="true" opens the app to anyone, with no Access login. The tunnels stay
+// locked to the service token; what keeps strangers from monopolising the GPU and
+// the Pi is the per-IP rate limit, so public mode fails closed without one.
+const isPublic = (env) => (env.PUBLIC || "").trim() === "true";
+
+// Wraps a handler so it only runs for a verified Access user (or anyone, when
+// public) who is within the rate limit named by `limiter`.
+const gated = (handler, limiter) => async (request, env, ctx, url) => {
+  let who = { ok: true, email: null };
+  if (!isPublic(env)) {
+    who = await verifyAccess(request, env, env.__fetch ?? fetch);
+    if (!who.ok) return json({ error: who.error }, { status: who.status });
+  }
+  if (limiter) {
+    const rl = env[limiter];
+    if (!rl) {
+      if (isPublic(env)) return json({ error: "rate_limit_not_configured" }, { status: 503 });
+    } else {
+      const key = request.headers.get("cf-connecting-ip") || "unknown";
+      const { success } = await rl.limit({ key });
+      if (!success) return json({ error: "rate_limited" }, { status: 429, headers: { "retry-after": "60" } });
+    }
+  }
   return handler(request, env, ctx, url, who);
 };
 
@@ -192,7 +211,7 @@ async function chat(request, env) {
 
 export const routes = {
   "GET /api/ping": () => json({ ok: true, at: new Date().toISOString() }),
-  "GET /api/me": gated((req, env, ctx, url, who) => json({ email: who.email })),
-  "GET /api/models": gated(models),
-  "POST /api/chat": gated(chat),
+  "GET /api/me": gated((req, env, ctx, url, who) => json({ email: who.email, public: isPublic(env) })),
+  "GET /api/models": gated(models, "MODELS_LIMIT"),
+  "POST /api/chat": gated(chat, "CHAT_LIMIT"),
 };
