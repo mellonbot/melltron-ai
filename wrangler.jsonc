@@ -30,7 +30,7 @@
     "LOCALAI_URL": "https://localai-tunnel.melltron.build",
     // Optional comma-separated LocalAI model ids to offer (empty = everything /v1/models
     // lists, including embedding/TTS/image models that can't chat).
-    "LOCALAI_MODELS": "",
+    "LOCALAI_MODELS": "llama-3.1-8b-instruct,deepseek-r1-distill-qwen-7b",
     // hailo-ollama on the Pi (Hailo-10H), port 11434. Same service token; empty disables it.
     "HAILO_URL": "https://hailo-tunnel.melltron.build",
     // Open to anyone, no Access login. Needs the rate limits below (fails closed without).

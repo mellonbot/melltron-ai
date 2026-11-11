@@ -67,13 +67,21 @@ Serves LocalAI (current) and Ollama (retired Nov 2026; to bring it back, add the
 
 #### LocalAI on the RTX 4060
 
-LocalAI runs on the desktop, bound to `127.0.0.1:8090` (CUDA 12 build, or the `localai/localai:latest-gpu-nvidia-cuda-12` image with `--gpus all -p 127.0.0.1:8090:8080`). Keep it on loopback; the tunnel is the only way in.
+LocalAI runs in Docker on the desktop, bound to loopback; the tunnel is the only way in. Needs the NVIDIA Container Toolkit (`nvidia-ctk runtime configure --runtime=docker`).
 
-1. Install chat models (`local-ai models install <gallery-id>` or a YAML in the models dir) and check `curl http://127.0.0.1:8090/v1/models`. Set `gpu_layers: 99` in each model's YAML so it runs fully on the GPU; an 8B Q4 GGUF fits the 4060's 8 GB.
-2. Optional: start LocalAI with `API_KEY=<random>` and `wrangler secret put LOCALAI_API_KEY` with the same value.
+```
+docker run -d --name localai --restart unless-stopped --gpus all -p 127.0.0.1:8090:8080 \
+  -v ~/localai/models:/models -v localai-backends:/backends -e MODELS_PATH=/models \
+  -e LOCALAI_SINGLE_ACTIVE_BACKEND=true -e API_KEY="$(cat ~/localai/api_key)" \
+  localai/localai:latest-gpu-nvidia-cuda-12
+```
+
+1. v4 images ship without inference backends: install `llama-cpp` once (`POST /backends/apply`, resolves to `cuda12-llama-cpp`). Keep `/backends` on a named volume or it's lost when the container is recreated.
+2. Models (current): `llama-3.1-8b-instruct` (Meta-Llama-3.1-8B-Instruct Q4_K_M) and `deepseek-r1-distill-qwen-7b` (Q4_K_M), GGUFs downloaded directly into `~/localai/models` (the gallery pulled Q8_0, which doesn't leave room for KV cache in 8 GB). Each YAML: `backend: llama-cpp`, `gpu_layers: 99`, `f16: true`, `context_size: 8192`, `use_tokenizer_template: true`. One model resident at a time (~5–6.5 GB VRAM); the first message after a switch takes ~10–20 s. R1 reasoning arrives as `delta.reasoning` and shows in the Reasoning panel.
+3. `~/localai/api_key` (mode 600) is LocalAI's `API_KEY`; the same value is the Worker secret `LOCALAI_API_KEY`. Without the header LocalAI answers 401.
 3. Re-enable tunnel `mellonlab-office` and add public hostname `localai-tunnel.melltron.build` → `HTTP` `localhost:8090`.
 4. Add an Access application for `localai-tunnel.melltron.build` with the single **Service Auth** policy (same service token as the other tunnels).
-5. Set `LOCALAI_MODELS` in `wrangler.jsonc` to the chat model ids from step 1.
+5. Keep `LOCALAI_MODELS` in `wrangler.jsonc` in step with the chat model ids in `/v1/models`.
 
 #### Ollama (retired)
 
