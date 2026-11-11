@@ -257,7 +257,9 @@ async function loadModels() {
       const o = document.createElement("option");
       o.value = m.name;
       const label = m.name.replace(/^hailo\//, "");
-      o.textContent = m.parameters ? `${label}  ·  ${m.parameters}` : label;
+      // "qwen2.5-coder:1.5b · 1.5B" says the size twice and gets cut off on phones.
+      const size = m.parameters && !label.toLowerCase().endsWith(":" + m.parameters.toLowerCase()) ? m.parameters : "";
+      o.textContent = size ? `${label} · ${size}` : label;
       groups.get(k).append(o);
     }
     for (const k of ["desktop", "hailo", ...groups.keys()]) if (groups.has(k)) { els.model.append(groups.get(k)); groups.delete(k); }
@@ -291,6 +293,9 @@ let pollTimer = 0;
 function renderQuota() {
   const q = quota;
   els.quota.hidden = true; els.emptyQuota.hidden = true; els.request.hidden = true;
+  // The denied view hides the fields; put them back so a later state starts clean.
+  els.requestName.closest("label").hidden = false; els.requestNote.closest("label").hidden = false;
+  els.requestSend.hidden = false;
   delete els.quota.dataset.low;
   clearTimeout(pollTimer);
   if (!q || q.tier === "private") { updateSend(); return; }
@@ -367,6 +372,7 @@ function updateSend() {
   els.send.disabled = busy || els.model.disabled || blocked() || !els.input.value.trim();
 }
 
+const touch = matchMedia("(pointer: coarse)");
 function autosize() { els.input.style.height = "auto"; els.input.style.height = Math.min(els.input.scrollHeight, innerHeight * 0.4) + "px"; }
 
 // Some models put their reasoning inline as <think>…</think> instead of a separate
@@ -479,7 +485,8 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeSide(
 // ---------- wiring ----------
 els.form.addEventListener("submit", (e) => { e.preventDefault(); send(); });
 els.input.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
+  // Touch keyboards have no Shift+Enter: there Enter is a newline and the Send button sends.
+  if (e.key === "Enter" && !e.shiftKey && !e.isComposing && !touch.matches) { e.preventDefault(); send(); }
 });
 els.input.addEventListener("input", () => { autosize(); updateSend(); });
 els.stop.addEventListener("click", () => controller?.abort());
@@ -500,4 +507,7 @@ renderAll();
 loadModels();
 loadQuota();
 loadMe();
-els.input.focus();
+autosize();
+addEventListener("resize", autosize);
+// Focusing on load opens the keyboard over the page on phones.
+if (!touch.matches) els.input.focus();

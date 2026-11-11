@@ -15,6 +15,9 @@
 html, body { height: 100%; }
 body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
 button, select, textarea, input { font: inherit; color: inherit; }
+/* Author display rules (.request is a grid, its labels too) beat the UA's [hidden] style,
+   so hidden elements stayed on screen. Make hidden mean hidden everywhere. */
+[hidden] { display: none !important; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 .shell { display: grid; grid-template-columns: 260px 1fr; height: 100dvh; }
@@ -43,7 +46,8 @@ button, select, textarea, input { font: inherit; color: inherit; }
 .main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .bar { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line); flex-wrap: wrap; padding-top: calc(10px + env(safe-area-inset-top, 0px)); }
 .bar h1 { font-size: 16px; margin: 0; margin-right: auto; }
-.model select { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; max-width: 60vw; }
+.model { min-width: 0; }
+.model select { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; max-width: 60vw; text-overflow: ellipsis; }
 .think { font-size: 13px; color: var(--dim); display: inline-flex; gap: 6px; align-items: center; }
 
 .btn { border: 1px solid var(--line); background: var(--bg); border-radius: 6px; padding: 7px 14px; cursor: pointer; }
@@ -90,8 +94,10 @@ details.thinking .t { white-space: pre-wrap; margin-top: 6px; }
 .request label { display: grid; gap: 4px; }
 .request input, .request textarea { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px; resize: vertical; }
 .request-actions { display: flex; gap: 10px; align-items: center; }
-.composer { display: flex; gap: 8px; align-items: flex-end; padding: 12px 16px; border-top: 1px solid var(--line); padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
-.composer textarea { flex: 1; resize: none; max-height: 40vh; min-height: 42px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; line-height: 1.45; }
+.composer { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; padding: 12px 16px; border-top: 1px solid var(--line); padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
+.composer textarea { flex: 1; min-width: 0; resize: none; max-height: 40vh; min-height: 44px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; line-height: 1.45; }
+.composer .btn { min-height: 44px; }
+.composer .keys { flex-basis: 100%; margin: 0; font-size: 11px; color: var(--dim); }
 .composer textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 
 @media (max-width: 760px) {
@@ -101,5 +107,10 @@ details.thinking .t { white-space: pre-wrap; margin-top: 6px; }
   .btn.icon { display: inline-block; }
   .bar h1 { margin-right: 0; }
   .model { margin-left: auto; }
+}
+/* Touch: no Shift+Enter, so Enter is a newline and Send sends; 16px inputs stop iOS zooming on focus. */
+@media (pointer: coarse) {
+  .composer .keys { display: none; }
+  .composer textarea, .request input, .request textarea, .model select { font-size: 16px; }
 }
 @media (prefers-reduced-motion: reduce) { .sidebar { transition: none; } .cursor::after { animation: none; } }

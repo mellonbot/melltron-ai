@@ -58,9 +58,10 @@
 
     <form id="composer" class="composer">
       <label class="sr" for="input">Message</label>
-      <textarea id="input" rows="1" placeholder="Message the model…  (Enter to send, Shift+Enter for a new line)" autocomplete="off"></textarea>
+      <textarea id="input" rows="1" placeholder="Message the model…" autocomplete="off" aria-describedby="keys"></textarea>
       <button id="send" class="btn primary" type="submit" disabled>Send</button>
       <button id="stop" class="btn" type="button" hidden>Stop</button>
+      <p id="keys" class="keys">Enter to send · Shift+Enter for a new line</p>
     </form>
   </main>
 </div>
