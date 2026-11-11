@@ -195,3 +195,50 @@ test("admin routes need the admin Access app's JWT", async () => {
   assert.equal((await quiet(() => req("/api/admin/visitors", { method: "POST", body: { id: V1, action: "approve" } }))).status, 401);
   assert.equal((await req("/api/admin/visitors", { auth: await jwt() })).status, 200);
 });
+
+// ---------- email alerts ----------
+const mailbox = (fail = false) => {
+  const sent = [];
+  return { sent, async send(m) { if (fail) throw Object.assign(new Error("boom"), { code: "E_FAIL" }); sent.push(m); return { messageId: `m${sent.length}` }; } };
+};
+const ask = (opts = {}) => req("/api/access-request", { method: "POST", body: { name: "Sam <b>", note: "hi & <script>" }, ...opts });
+
+test("a new access request emails the owner once, escaped, with an /admin link", async () => {
+  const box = mailbox();
+  const e = { ...env, ALERT_EMAIL: box, ALERT_TO: "owner@example.com", ALERT_FROM: "ai@melltron.build" };
+  assert.equal((await ask({ e })).status, 200);
+  assert.equal(box.sent.length, 1);
+  const m = box.sent[0];
+  assert.equal(m.to, "owner@example.com");
+  assert.deepEqual(m.from, { email: "ai@melltron.build", name: "ai.melltron.build" });
+  assert.equal(m.subject, "AI access request: Sam <b>");
+  assert.match(m.text, /Note: hi & <script>/);
+  assert.match(m.text, /https:\/\/ai\.melltron\.build\/admin\//);
+  assert.match(m.html, /Sam &lt;b&gt;/);
+  assert.doesNotMatch(m.html, /<script>/);
+
+  // Editing a pending request doesn't email again; a fresh one after a reset does.
+  await ask({ e, body: { name: "Sam", note: "updated" } });
+  assert.equal(box.sent.length, 1);
+  await req("/api/admin/visitors", { method: "POST", auth: await jwt(), body: { id: V1, action: "reset" }, e });
+  await ask({ e });
+  assert.equal(box.sent.length, 2);
+});
+
+test("alerts are capped per hour across all visitors", async () => {
+  const box = mailbox();
+  const e = { ...env, ALERT_EMAIL: box, ALERT_TO: "owner@example.com", ALERT_FROM: "ai@melltron.build", ALERT_MAX_PER_HOUR: "2" };
+  for (let i = 0; i < 4; i++) {
+    const res = await ask({ e, visitor: `visitor-cap-00000000000${i}`, ip: `198.51.100.${i}` });
+    assert.equal(res.status, 200, "requests still go through");
+  }
+  assert.equal(box.sent.length, 2);
+});
+
+test("missing or failing email never breaks the request", async () => {
+  assert.equal((await ask()).status, 200, "not configured");
+  const e = { ...env, ALERT_EMAIL: mailbox(true), ALERT_TO: "owner@example.com", ALERT_FROM: "ai@melltron.build" };
+  const err = console.error; console.error = () => {};
+  try { assert.equal((await ask({ e, visitor: V2, ip: "198.51.100.77" })).status, 200, "send throws"); }
+  finally { console.error = err; }
+});

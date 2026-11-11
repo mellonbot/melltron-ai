@@ -11,6 +11,7 @@
 // pull/delete/create stay private.
 
 import { verifyAccess } from "./access.js";
+import { notifyOwner } from "./alert.js";
 import { standing, canChat, consume, describe, requestAccess, listVisitors, decide, freePrompts, VISITOR, REQUEST_LIMITS } from "./quota.js";
 
 export const json = (data, init = {}) =>
@@ -248,7 +249,7 @@ async function readSmallJson(request, max = 4096) {
 const cleanText = (v, max) => (typeof v === "string" ? v.replace(/[\u0000-\u001f\u007f]+/g, " ").trim().slice(0, max) : "");
 
 // A visitor out of free prompts asks the owner for more.
-async function accessRequest(request, env) {
+async function accessRequest(request, env, ctx, url) {
   if (!isPublic(env)) return json({ error: "not_found" }, { status: 404 });
   if (!env.DB) return json({ error: "quota_not_configured" }, { status: 503 });
   const s = await standing(request, env);
@@ -259,7 +260,13 @@ async function accessRequest(request, env) {
   const name = cleanText(body.name, REQUEST_LIMITS.name);
   const note = cleanText(body.note, REQUEST_LIMITS.note);
   if (!name) return json({ error: "bad_request", detail: "name is required" }, { status: 400 });
-  await requestAccess(env, s, { name, note });
+  const fresh = await requestAccess(env, s, { name, note });
+  if (fresh) {
+    const alert = notifyOwner(env, { name, note, ip: s.ip, prompts: s.used, adminUrl: new URL("/admin/", url).href });
+    // Don't make the visitor wait for the email.
+    if (ctx?.waitUntil) ctx.waitUntil(alert);
+    else await alert;
+  }
   return json(describe(await standing(request, env)));
 }
 
