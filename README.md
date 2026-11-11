@@ -65,6 +65,8 @@ systemctl --user enable --now tailnet-pass
 
 Serves LocalAI (current) and Ollama (retired Nov 2026; to bring it back, add the `ollama-tunnel` hostname below and set `OLLAMA_URL` to `https://ollama-tunnel.melltron.build`).
 
+Both tunnels are remotely managed (ingress lives in the dashboard / API, not a local config.yml). On the desktop, cloudflared runs as a user process (`~/.local/bin/cloudflared tunnel run --token-file ~/.config/cloudflared/tunnel-token`), not the `cloudflared` system service.
+
 #### LocalAI on the RTX 4060
 
 LocalAI runs in Docker on the desktop, bound to loopback; the tunnel is the only way in. Needs the NVIDIA Container Toolkit (`nvidia-ctk runtime configure --runtime=docker`).
@@ -96,7 +98,7 @@ Then add an Access application for `ollama-tunnel.melltron.build` with a single 
 
 Tunnel `hailo-pi`, connector installed on the Pi as a system service, public hostname:
 
-- `hailo-tunnel.melltron.build` → `HTTP` `localhost:11434` (hailo-ollama, moved from `:8000` in Nov 2026; cloudflared runs on the Pi, so use `localhost`, not `hailo-pi.local`, built from [hailo_model_zoo_genai](https://github.com/hailo-ai/hailo_model_zoo_genai))
+- `hailo-tunnel.melltron.build` → `HTTP` `localhost:11434` (hailo-ollama, moved from `:8000` in Nov 2026; cloudflared runs on the Pi, so use `localhost`, not `hailo-pi.local`; HTTP Host Header `localhost:11434` (it was left at `localhost:8000` after the port move; hailo-ollama doesn't appear to check it, but keep the two in step), built from [hailo_model_zoo_genai](https://github.com/hailo-ai/hailo_model_zoo_genai))
 
 plus an Access application for `hailo-tunnel.melltron.build` with the same single **Service Auth** policy. hailo-ollama runs one model at a time on the HAT, so the first message after switching models takes ~30 s while it loads. Reasoning from `deepseek_r1_distill_qwen` arrives inline, ending in `</think>` (the opening tag is part of the prompt); the UI splits it into the Reasoning panel.
 
