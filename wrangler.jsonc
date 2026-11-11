@@ -3,7 +3,7 @@
   // Isolated by design: own repo, own Worker, own domain binding. Nothing in the
   // melltron.build root routes here; the root only lists it in content/lab.json.
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "lab-ai",
+  "name": "melltron-ai",
   "main": "src/index.js",
   "compatibility_date": "2026-11-01",
   "assets": {

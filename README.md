@@ -5,7 +5,7 @@ LAB-003. Chat with the lab's own Ollama models (llama3.1:8b, deepseek-r1:8b, …
 ## How it fits together
 
 ```
-browser ──▶ ai.melltron.build ──▶ Worker lab-ai ──▶ ollama-tunnel.melltron.build ──▶ cloudflared (desktop) ──▶ Ollama 127.0.0.1:11434
+browser ──▶ ai.melltron.build ──▶ Worker melltron-ai ──▶ ollama-tunnel.melltron.build ──▶ cloudflared (desktop) ──▶ Ollama 127.0.0.1:11434
             [Access: owner login]   [verifies Access JWT]  [Access: service token only]
 ```
 
