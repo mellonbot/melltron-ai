@@ -4,7 +4,7 @@ import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import worker from "../src/index.js";
 import { _resetAccessCache } from "../src/access.js";
-import { validateChat, LIMITS, DEFAULT_SYSTEM } from "../src/api.js";
+import { validateChat, LIMITS, DEFAULT_SYSTEM, sseToNdjson } from "../src/api.js";
 import { _resetSchema } from "../src/quota.js";
 import { fakeD1 } from "./d1.js";
 
@@ -281,6 +281,106 @@ test("Pi failures name the backend; unconfigured Pi is not_configured", async ()
 
   res = await req("/api/chat", { method: "POST", body: { ...chatBody, model: "hailo/" }, e: hailoEnv });
   assert.equal(res.status, 400);
+});
+
+// ---------- LocalAI on the desktop (OpenAI API) ----------
+const LOCALAI = "localai-tunnel.example";
+const laEnv = { ...env, OLLAMA_URL: "", LOCALAI_URL: `https://${LOCALAI}` };
+const byHost3 = (localai, other = () => { throw new Error("unexpected host"); }) => async (input, init = {}) => {
+  const url = new URL(input);
+  if (url.host === TEAM) return fakeFetch(input, init);
+  calls.push({ host: url.host, path: url.pathname, init });
+  return (url.host === LOCALAI ? localai : other)(url.pathname, init);
+};
+const sse = (events) => new Response(events.map((e) => `data: ${typeof e === "string" ? e : JSON.stringify(e)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
+const delta = (d) => ({ choices: [{ index: 0, delta: d }] });
+const localaiUp = (path, init) => {
+  if (path === "/v1/models") return Response.json({ object: "list", data: [{ id: "llama-3.1-8b-instruct" }, { id: "deepseek-r1-distill-qwen-7b" }, { id: "text-embedding-ada-002" }] });
+  if (path === "/v1/chat/completions") return sse([delta({ role: "assistant" }), delta({ reasoning_content: "hmm" }), delta({ content: "Hel" }), delta({ content: "lo" }), "[DONE]"]);
+  return new Response("nope", { status: 404 });
+};
+const ndjson = async (res) => (await res.text()).trim().split("\n").map((l) => JSON.parse(l));
+
+test("LocalAI models are listed as rtx/<id> from /v1/models; LOCALAI_MODELS filters them", async () => {
+  let res = await req("/api/models", { e: { ...laEnv, __fetch: byHost3(localaiUp) } });
+  assert.equal(res.status, 200);
+  let body = await res.json();
+  assert.deepEqual(body.models.map((m) => [m.name, m.backend]), [
+    ["rtx/deepseek-r1-distill-qwen-7b", "localai"], ["rtx/llama-3.1-8b-instruct", "localai"], ["rtx/text-embedding-ada-002", "localai"],
+  ]);
+  assert.deepEqual(body.backends, { localai: "online" });
+  assert.deepEqual(calls.map((c) => c.path), ["/v1/models"]);
+  assert.equal(calls[0].init.headers["CF-Access-Client-Id"], "cid");
+  assert.equal(calls[0].init.headers.authorization, undefined);
+
+  calls = [];
+  res = await req("/api/models", { e: { ...laEnv, LOCALAI_MODELS: " llama-3.1-8b-instruct , deepseek-r1-distill-qwen-7b", LOCALAI_API_KEY: "k", __fetch: byHost3(localaiUp) } });
+  body = await res.json();
+  assert.deepEqual(body.models.map((m) => m.name), ["rtx/deepseek-r1-distill-qwen-7b", "rtx/llama-3.1-8b-instruct"]);
+  assert.equal(calls[0].init.headers.authorization, "Bearer k");
+});
+
+test("rtx/ chat goes to /v1/chat/completions and streams back as Ollama NDJSON", async () => {
+  const res = await req("/api/chat", { method: "POST", body: { ...chatBody, model: "rtx/llama-3.1-8b-instruct", think: true }, e: { ...laEnv, __fetch: byHost3(localaiUp) } });
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get("content-type"), /ndjson/);
+  assert.deepEqual(await ndjson(res), [
+    { message: { role: "assistant", content: "", thinking: "hmm" }, done: false },
+    { message: { role: "assistant", content: "Hel" }, done: false },
+    { message: { role: "assistant", content: "lo" }, done: false },
+    { done: true },
+  ]);
+  const c = calls.find((c) => c.path === "/v1/chat/completions");
+  assert.equal(c.host, LOCALAI);
+  const sent = JSON.parse(c.init.body);
+  assert.deepEqual(Object.keys(sent).sort(), ["messages", "model", "stream"]);
+  assert.equal(sent.model, "llama-3.1-8b-instruct");
+  assert.equal(sent.stream, true);
+  assert.equal(sent.messages[0].role, "system");
+});
+
+test("LocalAI: allowlist blocks other models; failures name the backend; OpenAI error bodies give a detail", async () => {
+  let res = await req("/api/chat", { method: "POST", body: { ...chatBody, model: "rtx/text-embedding-ada-002" }, e: { ...laEnv, LOCALAI_MODELS: "llama-3.1-8b-instruct", __fetch: byHost3(localaiUp) } });
+  assert.equal(res.status, 400);
+  assert.equal(calls.length, 0);
+
+  res = await quiet(() => req("/api/chat", { method: "POST", body: { ...chatBody, model: "rtx/x" }, e: { ...laEnv, __fetch: byHost3(down) } }));
+  assert.equal(res.status, 503);
+  assert.deepEqual(await res.json(), { error: "offline", backend: "localai" });
+
+  const bad = () => Response.json({ error: { code: 500, message: "could not load model", type: "" } }, { status: 500 });
+  res = await quiet(() => req("/api/chat", { method: "POST", body: { ...chatBody, model: "rtx/x" }, e: { ...laEnv, __fetch: byHost3(bad) } }));
+  assert.equal(res.status, 502);
+  assert.deepEqual(await res.json(), { error: "upstream", backend: "localai", status: 500, detail: "could not load model" });
+
+  res = await req("/api/chat", { method: "POST", body: { ...chatBody, model: "rtx/x" }, e: { ...env, OLLAMA_URL: "" } });
+  assert.equal(res.status, 503);
+  assert.deepEqual(await res.json(), { error: "not_configured", backend: "localai" });
+});
+
+test("sseToNdjson handles split chunks, CRLF, comments, mid-stream errors and a missing [DONE]", async () => {
+  const run = async (chunks) => {
+    const enc = new TextEncoder();
+    const src = new ReadableStream({ start(c) { for (const ch of chunks) c.enqueue(enc.encode(ch)); c.close(); } });
+    return (await new Response(src.pipeThrough(sseToNdjson())).text()).trim().split("\n").map((l) => JSON.parse(l));
+  };
+  assert.deepEqual(await run([": keepalive\r\n\r\ndata: {\"choices\":[{\"delta\":{\"con", "tent\":\"a\"}}]}\r\n\r\n", "data: {\"choices\":[{\"delta\":{\"content\":\"b\"}}]}"]), [
+    { message: { role: "assistant", content: "a" }, done: false },
+    { message: { role: "assistant", content: "b" }, done: false },
+    { done: true },
+  ]);
+  assert.deepEqual(await run(['data: {"choices":[{"delta":{"content":"a"}}]}\n\n', 'data: {"error":{"message":"out of memory"}}\n\n', 'data: {"choices":[{"delta":{"content":"z"}}]}\n\n']), [
+    { message: { role: "assistant", content: "a" }, done: false },
+    { error: "out of memory", done: true },
+  ]);
+});
+
+test("all three backends merge into one list", async () => {
+  const e = { ...env, LOCALAI_URL: `https://${LOCALAI}`, HAILO_URL: "https://hailo-tunnel.example",
+    __fetch: byHost3(localaiUp, (p, i) => (p.startsWith("/api/") ? (calls.at(-1).host === "hailo-tunnel.example" ? hailoUp(p, i) : ollama(p, i)) : new Response("", { status: 404 }))) };
+  const body = await (await req("/api/models", { e })).json();
+  assert.deepEqual(body.backends, { desktop: "online", localai: "online", hailo: "online" });
+  assert.deepEqual([...new Set(body.models.map((m) => m.backend))].sort(), ["desktop", "hailo", "localai"]);
 });
 
 // ---------- public mode ----------

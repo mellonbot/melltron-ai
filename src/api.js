@@ -1,14 +1,16 @@
 // App logic lives here. Each handler: (request, env, ctx, url) -> Response.
 // Return JSON via json(); errors are caught and logged by src/index.js.
 //
-// The Worker is a narrow proxy to the owner's Ollama-compatible servers, each reached
-// through a Cloudflare Tunnel that only admits the Access service token held in
+// The Worker is a narrow proxy to the owner's model servers, each reached through a
+// Cloudflare Tunnel that only admits the Access service token held in
 // OLLAMA_CLIENT_ID / OLLAMA_CLIENT_SECRET:
-//   desktop  env.OLLAMA_URL  Ollama on the office desktop (RTX 4060); empty = off
-//   hailo    env.HAILO_URL   hailo-ollama on the Pi's Hailo-10H AI HAT; empty = off
-// Desktop model ids are the plain Ollama names; Pi model ids are "hailo/<name>".
-// Only /api/tags (+ /api/show) and /api/chat are ever called upstream, so
-// pull/delete/create stay private.
+//   desktop  env.OLLAMA_URL   Ollama on the office desktop (RTX 4060); empty = off
+//   localai  env.LOCALAI_URL  LocalAI on the office desktop (RTX 4060); empty = off
+//   hailo    env.HAILO_URL    hailo-ollama on the Pi's Hailo-10H AI HAT; empty = off
+// Desktop Ollama ids are the plain names; LocalAI ids are "rtx/<name>", Pi ids "hailo/<name>".
+// Ollama-style servers only ever see /api/tags (+ /api/show) and /api/chat; LocalAI
+// (OpenAI API) only /v1/models and /v1/chat/completions, translated to the same
+// shapes, so the UI sees one protocol and model management stays private.
 
 import { verifyAccess } from "./access.js";
 import { notifyOwner } from "./alert.js";
@@ -60,6 +62,7 @@ const gated = (handler, limiter) => async (request, env, ctx, url) => {
 
 export const BACKENDS = {
   desktop: { urlVar: "OLLAMA_URL", prefix: "", show: true },
+  localai: { urlVar: "LOCALAI_URL", prefix: "rtx/", show: false, openai: true },
   hailo: { urlVar: "HAILO_URL", prefix: "hailo/", show: false }, // hailo-ollama has no capabilities in /api/show
 };
 
@@ -77,14 +80,18 @@ function ollama(env, backend, path, init = {}) {
   const base = (env[BACKENDS[backend].urlVar] || "").trim();
   if (!base || !env.OLLAMA_CLIENT_ID || !env.OLLAMA_CLIENT_SECRET) return null;
   const f = env.__fetch ?? fetch;
+  const headers = {
+    "content-type": "application/json",
+    "CF-Access-Client-Id": env.OLLAMA_CLIENT_ID,
+    "CF-Access-Client-Secret": env.OLLAMA_CLIENT_SECRET,
+  };
+  // Optional second lock: LocalAI's own API key (its API_KEY setting).
+  const key = BACKENDS[backend].openai && (env.LOCALAI_API_KEY || "").trim();
+  if (key) headers.authorization = `Bearer ${key}`;
   return f(new URL(path, base), {
     ...init,
     redirect: "manual", // a 302 here means Access refused the service token
-    headers: {
-      "content-type": "application/json",
-      "CF-Access-Client-Id": env.OLLAMA_CLIENT_ID,
-      "CF-Access-Client-Secret": env.OLLAMA_CLIENT_SECRET,
-    },
+    headers,
   });
 }
 
@@ -98,7 +105,9 @@ async function upstreamFailure(res, backend) {
   let detail = "";
   try {
     const body = await res.text();
-    detail = (JSON.parse(body).error ?? body).toString().slice(0, 300);
+    let e = body;
+    try { e = JSON.parse(body).error ?? body; } catch {}
+    detail = (typeof e === "object" && e ? e.message ?? JSON.stringify(e) : e).toString().slice(0, 300);
   } catch {}
   return { status: 502, body: { error: "upstream", backend, status: res.status, detail } };
 }
@@ -118,9 +127,32 @@ async function call(env, backend, path, init) {
   }
 }
 
+// LOCALAI_MODELS: optional comma-separated allowlist. LocalAI's /v1/models also
+// lists embedding, TTS and image models, which can't chat.
+const localaiAllowed = (env) => {
+  const list = (env.LOCALAI_MODELS || "").split(",").map((s) => s.trim()).filter(Boolean);
+  return list.length ? new Set(list) : null;
+};
+
+async function listOpenAI(env, backend) {
+  const b = BACKENDS[backend];
+  const res = await call(env, backend, "/v1/models", { method: "GET" });
+  if (!res?.ok) return { failure: await upstreamFailure(res, backend) };
+  const allow = localaiAllowed(env);
+  const ids = ((await res.json()).data ?? [])
+    .map((m) => m?.id)
+    .filter((id) => typeof id === "string" && MODEL.test(b.prefix + id) && (!allow || allow.has(id)));
+  return {
+    models: ids.slice(0, LIMITS.models).map((id) => ({
+      name: b.prefix + id, backend, size: null, parameters: null, family: null, thinking: false,
+    })),
+  };
+}
+
 // One backend's models, or {failure} when it can't be listed.
 async function listBackend(env, backend) {
   const b = BACKENDS[backend];
+  if (b.openai) return listOpenAI(env, backend);
   const tags = await call(env, backend, "/api/tags", { method: "GET" });
   if (!tags?.ok) return { failure: await upstreamFailure(tags, backend) };
   const list = ((await tags.json()).models ?? []).slice(0, LIMITS.models);
@@ -214,17 +246,67 @@ async function chat(request, env) {
     }
   }
 
+  const b = BACKENDS[backend];
+  if (b.openai) {
+    const allow = localaiAllowed(env);
+    if (allow && !allow.has(name)) return json({ error: "bad_request", detail: "invalid model" }, { status: 400 });
+  }
   const payload = { model: name, messages, stream: true };
-  if (v.think && BACKENDS[backend].show) payload.think = true;
-  const res = await call(env, backend, "/api/chat", { method: "POST", body: JSON.stringify(payload), signal: request.signal });
+  if (v.think && b.show) payload.think = true;
+  const res = await call(env, backend, b.openai ? "/v1/chat/completions" : "/api/chat", { method: "POST", body: JSON.stringify(payload), signal: request.signal });
   if (!res?.ok) return upstreamError(res, backend);
   // Only prompts the model actually started answering count.
   if (quota) await consume(env, quota);
 
-  // Ollama streams NDJSON; pass it straight through.
-  return new Response(res.body, {
+  // Ollama streams NDJSON; pass it straight through. OpenAI SSE is translated to it.
+  return new Response(b.openai ? res.body.pipeThrough(sseToNdjson()) : res.body, {
     status: 200,
     headers: { "content-type": "application/x-ndjson; charset=utf-8", "cache-control": "no-store" },
+  });
+}
+
+// OpenAI chat-completions SSE -> Ollama /api/chat NDJSON, so the UI parses one format.
+//   data: {"choices":[{"delta":{"content":"Hi"}}]}  ->  {"message":{"role":"assistant","content":"Hi"},"done":false}
+//   data: [DONE]                                   ->  {"done":true}
+// delta.reasoning_content / delta.reasoning become message.thinking; an error event
+// becomes {"error": "..."}. A stream that ends without [DONE] still gets a final done.
+export function sseToNdjson() {
+  const dec = new TextDecoder();
+  const enc = new TextEncoder();
+  let buf = "";
+  let finished = false;
+  const emit = (ctl, obj) => ctl.enqueue(enc.encode(JSON.stringify(obj) + "\n"));
+  const line = (ctl, raw) => {
+    const l = raw.trim();
+    if (finished || !l.startsWith("data:")) return; // comments, event:, id:, blank lines
+    const data = l.slice(5).trim();
+    if (data === "[DONE]") { finished = true; emit(ctl, { done: true }); return; }
+    let evt;
+    try { evt = JSON.parse(data); } catch { return; }
+    if (evt.error) {
+      finished = true;
+      const e = evt.error;
+      emit(ctl, { error: String((typeof e === "object" ? e.message : e) || "upstream error").slice(0, 300), done: true });
+      return;
+    }
+    const d = evt.choices?.[0]?.delta ?? {};
+    const thinking = d.reasoning_content ?? d.reasoning;
+    if (!d.content && !thinking) return;
+    const message = { role: "assistant", content: d.content || "" };
+    if (thinking) message.thinking = thinking;
+    emit(ctl, { message, done: false });
+  };
+  return new TransformStream({
+    transform(chunk, ctl) {
+      buf += dec.decode(chunk, { stream: true });
+      let nl;
+      while ((nl = buf.indexOf("\n")) >= 0) { line(ctl, buf.slice(0, nl)); buf = buf.slice(nl + 1); }
+    },
+    flush(ctl) {
+      buf += dec.decode();
+      if (buf) line(ctl, buf);
+      if (!finished) emit(ctl, { done: true });
+    },
   });
 }
 
