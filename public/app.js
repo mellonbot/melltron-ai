@@ -192,6 +192,8 @@ const ERRORS = {
   access_not_configured: "Access verification isn't configured on the Worker yet (ACCESS_TEAM_DOMAIN / ACCESS_AUD).",
   unauthenticated: "Your sign-in has expired.",
   too_large: "This conversation is too long to send. Start a new chat.",
+  rate_limited: "Too many requests from your connection. Wait a minute and try again.",
+  rate_limit_not_configured: "The Worker is public but has no rate limit configured, so it's refusing requests.",
 };
 const explain = (e) => (e.error === "offline" && OFFLINE[e.backend]) || ERRORS[e.error] || (e.detail ? `Ollama: ${e.detail}` : `Request failed (${e.error || "unknown"}).`);
 

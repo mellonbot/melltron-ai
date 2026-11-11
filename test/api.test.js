@@ -95,7 +95,7 @@ test("missing, forged, expired and wrong-audience tokens are rejected", async ()
 test("/api/me returns the verified email", async () => {
   const res = await req("/api/me");
   assert.equal(res.status, 200);
-  assert.deepEqual(await res.json(), { email: "me@example.com" });
+  assert.deepEqual(await res.json(), { email: "me@example.com", public: false });
 });
 
 test("/_health and /api/ping stay public", async () => {
@@ -264,4 +264,56 @@ test("Pi failures name the backend; unconfigured Pi is not_configured", async ()
 
   res = await req("/api/chat", { method: "POST", body: { ...chatBody, model: "hailo/" }, e: hailoEnv });
   assert.equal(res.status, 400);
+});
+
+// ---------- public mode ----------
+// A fake Workers rate limiter: allows `limit` calls per key.
+const limiter = (limit) => {
+  const seen = new Map();
+  return { keys: seen, async limit({ key }) { const n = (seen.get(key) ?? 0) + 1; seen.set(key, n); return { success: n <= limit }; } };
+};
+const publicEnv = (over = {}) => ({ ...env, PUBLIC: "true", ACCESS_AUD: "", CHAT_LIMIT: limiter(2), MODELS_LIMIT: limiter(5), ...over });
+const anon = (path, e, { method = "GET", body, ip = "203.0.113.7" } = {}) =>
+  worker.fetch(new Request(`https://ai.melltron.build${path}`, { method, headers: { "content-type": "application/json", "cf-connecting-ip": ip }, body: body && JSON.stringify(body) }), e, {});
+
+test("public mode serves models and chat with no Access token", async () => {
+  const e = publicEnv();
+  const me = await anon("/api/me", e);
+  assert.equal(me.status, 200);
+  assert.deepEqual(await me.json(), { email: null, public: true });
+  assert.equal((await anon("/api/models", e)).status, 200);
+  const res = await anon("/api/chat", e, { method: "POST", body: chatBody });
+  assert.equal(res.status, 200);
+  assert.match(await res.text(), /"llo"/);
+  // The tunnel still gets the service token.
+  assert.equal(calls.find((c) => c.path === "/api/chat").init.headers["CF-Access-Client-Id"], "cid");
+});
+
+test("public chat is rate limited per IP", async () => {
+  const e = publicEnv();
+  for (let i = 0; i < 2; i++) assert.equal((await anon("/api/chat", e, { method: "POST", body: chatBody })).status, 200);
+  const before = calls.length;
+  const res = await anon("/api/chat", e, { method: "POST", body: chatBody });
+  assert.equal(res.status, 429);
+  assert.equal((await res.json()).error, "rate_limited");
+  assert.equal(calls.length, before, "a limited request never reaches the GPU");
+  assert.equal((await anon("/api/chat", e, { method: "POST", body: chatBody, ip: "198.51.100.1" })).status, 200, "other IPs unaffected");
+  assert.deepEqual([...e.CHAT_LIMIT.keys.keys()], ["203.0.113.7", "198.51.100.1"]);
+});
+
+test("public mode fails closed without rate-limit bindings", async () => {
+  const e = publicEnv({ CHAT_LIMIT: undefined, MODELS_LIMIT: undefined });
+  for (const [p, init] of [["/api/models", {}], ["/api/chat", { method: "POST", body: chatBody }]]) {
+    const res = await anon(p, e, init);
+    assert.equal(res.status, 503, p);
+    assert.equal((await res.json()).error, "rate_limit_not_configured");
+  }
+  assert.equal(calls.length, 0);
+});
+
+test("PUBLIC must be exactly \"true\"; anything else still requires Access", async () => {
+  for (const PUBLIC of ["", "false", "1", "TRUE"]) {
+    const res = await quiet(() => anon("/api/models", { ...env, PUBLIC }));
+    assert.equal(res.status, 401, PUBLIC);
+  }
 });
