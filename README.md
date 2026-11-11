@@ -50,7 +50,7 @@ Tunnel `hailo-pi`, connector installed on the Pi as a system service, public hos
 
 - `hailo-tunnel.melltron.build` → `HTTP` `localhost:8000` (hailo-ollama, built from [hailo_model_zoo_genai](https://github.com/hailo-ai/hailo_model_zoo_genai))
 
-plus an Access application for `hailo-tunnel.melltron.build` with the same single **Service Auth** policy. hailo-ollama runs one model at a time on the HAT, so the first message after switching models takes ~30 s while it loads. Reasoning from `deepseek_r1_distill_qwen` arrives inline as `<think>…</think>`; the UI splits it into the Reasoning panel.
+plus an Access application for `hailo-tunnel.melltron.build` with the same single **Service Auth** policy. hailo-ollama runs one model at a time on the HAT, so the first message after switching models takes ~30 s while it loads. Reasoning from `deepseek_r1_distill_qwen` arrives inline, ending in `</think>` (the opening tag is part of the prompt); the UI splits it into the Reasoning panel.
 
 ## Develop
 

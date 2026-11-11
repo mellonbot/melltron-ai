@@ -269,14 +269,17 @@ function updateSend() {
 
 function autosize() { els.input.style.height = "auto"; els.input.style.height = Math.min(els.input.scrollHeight, innerHeight * 0.4) + "px"; }
 
-// Some models (deepseek-r1 on hailo-ollama) put their reasoning inline as
-// <think>…</think> instead of a separate field. Split it out while streaming.
-function splitThink(reply, raw) {
-  const t = raw.trimStart();
-  if (!t.startsWith("<think>")) { reply.content = raw; return; }
+// Some models put their reasoning inline as <think>…</think> instead of a separate
+// field. deepseek-r1 on hailo-ollama even drops the opening tag (its chat template
+// adds it), so for those everything before </think> is reasoning. Split while streaming.
+const inlineThinker = (model) => /^hailo\/.*(deepseek|r1)/i.test(model || "");
+function splitThink(reply, raw, open) {
+  let t = raw.trimStart();
+  if (t.startsWith("<think>")) { t = t.slice(7); open = true; }
+  if (!open) { reply.content = raw; return; }
   const end = t.indexOf("</think>");
-  if (end < 0) { reply.thinking = t.slice(7); reply.content = ""; return; }
-  reply.thinking = t.slice(7, end);
+  if (end < 0) { reply.thinking = t; reply.content = ""; return; }
+  reply.thinking = t.slice(0, end);
   reply.content = t.slice(end + 8).trimStart();
 }
 
@@ -335,7 +338,7 @@ async function send() {
         let evt; try { evt = JSON.parse(line); } catch { continue; }
         if (evt.error) throw new Error(`Ollama: ${evt.error}`);
         if (evt.message?.thinking) reply.thinking += evt.message.thinking;
-        if (evt.message?.content) { raw += evt.message.content; splitThink(reply, raw); }
+        if (evt.message?.content) { raw += evt.message.content; splitThink(reply, raw, inlineThinker(c.model)); }
         if (evt.done && evt.eval_count && evt.eval_duration) {
           const tps = evt.eval_count / (evt.eval_duration / 1e9);
           reply.meta = `${evt.eval_count} tokens · ${tps.toFixed(1)} tok/s`;
@@ -343,6 +346,8 @@ async function send() {
         paint();
       }
     }
+    // No </think> ever came: it was a plain answer after all.
+    if (!reply.content && reply.thinking && !raw.includes("</think>")) { reply.content = reply.thinking; reply.thinking = ""; }
     if (!reply.content && !reply.thinking) reply.error = "The model returned an empty reply.";
   } catch (err) {
     if (err.name === "AbortError") reply.meta = (reply.meta ? reply.meta + " · " : "") + "stopped";
