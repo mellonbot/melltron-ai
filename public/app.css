@@ -1,0 +1,8 @@
+:root { color-scheme: light dark; --fg: #16181a; --bg: #f6f6f4; --dim: #6b6f73; }
+@media (prefers-color-scheme: dark) { :root { --fg: #e6e7e8; --bg: #0d0f10; --dim: #8a8f94; } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; }
+header, main { max-width: 720px; margin: 0 auto; padding: 16px; }
+header a { color: var(--dim); text-decoration: none; }
+h1 { font-size: 1.6rem; margin: 1rem 0; }
+code { color: var(--dim); }

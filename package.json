@@ -1,0 +1,16 @@
+{
+  "name": "lab-template-app",
+  "private": true,
+  "type": "module",
+  "license": "SEE LICENSE IN LICENSE",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "init": "node tools/init.mjs",
+    "dev": "wrangler dev",
+    "test": "node --test test/*.test.js",
+    "check": "node tools/init.mjs --verify && node --test test/*.test.js && wrangler deploy --dry-run --outdir .wrangler/dry"
+  },
+  "devDependencies": {
+    "wrangler": "4.156.1"
+  }
+}

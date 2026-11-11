@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <defs>
+    <filter id="g" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="0.9" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="32" height="32" rx="6" fill="#08130f"/>
+  <!-- board texture: faint grid of unused vias -->
+  <g fill="#123326">
+    <circle cx="4" cy="4" r=".7"/><circle cx="28" cy="4" r=".7"/>
+    <circle cx="4" cy="28" r=".7"/><circle cx="28" cy="28" r=".7"/>
+    <circle cx="16" cy="5" r=".7"/>
+  </g>
+  <!-- base traces: M monogram + center tap -->
+  <g fill="none" stroke="#2c7a58" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M8 25V9l8 8 8-8v16"/>
+    <path d="M16 17v6"/>
+  </g>
+  <!-- pads -->
+  <circle cx="8" cy="25" r="2.3" fill="#d6a63c"/>
+  <circle cx="16" cy="24" r="1.9" fill="#d6a63c">
+    <animate attributeName="fill" dur="2.4s" repeatCount="indefinite"
+      keyTimes="0;.52;.57;.68;1" values="#d6a63c;#d6a63c;#c8ffff;#d6a63c;#d6a63c"/>
+  </circle>
+  <circle cx="24" cy="25" r="2.3" fill="#d6a63c">
+    <animate attributeName="fill" dur="2.4s" repeatCount="indefinite"
+      keyTimes="0;.92;.96;1" values="#d6a63c;#d6a63c;#c8ffff;#d6a63c"/>
+  </circle>
+  <!-- current pulses -->
+  <g fill="none" stroke="#8ff9ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" filter="url(#g)">
+    <path d="M8 25V9l8 8 8-8v16" stroke-dasharray="10 60" stroke-dashoffset="-38">
+      <animate attributeName="stroke-dashoffset" dur="2.4s" repeatCount="indefinite"
+        values="10;-58" keyTimes="0;1"/>
+    </path>
+    <path d="M16 17v6" stroke-dasharray="4 10" stroke-dashoffset="-6.5">
+      <animate attributeName="stroke-dashoffset" dur="2.4s" repeatCount="indefinite"
+        keyTimes="0;.41;.56;1" values="4;4;-6.5;-6.5"/>
+    </path>
+  </g>
+</svg>
