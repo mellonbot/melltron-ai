@@ -1,0 +1,37 @@
+:root {
+  color-scheme: light dark;
+  --fg: #16181a; --bg: #f6f6f4; --dim: #6b6f73; --line: #dcdcd8; --panel: #ecece8;
+  --accent: #c2304a; --accent-fg: #fff; --ok: #1f8a4c; --bad: #c2304a; --warn: #b07a12;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fg: #e6e7e8; --bg: #0d0f10; --dim: #8a8f94; --line: #23272a; --panel: #131618;
+    --accent: #ff8093; --accent-fg: #1a0a0d; --ok: #5fd38d; --bad: #ff8093; --warn: #e2b35a;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; }
+button { font: inherit; color: inherit; }
+.wrap { max-width: 960px; margin: 0 auto; padding: 24px 16px 48px; }
+.crumb { color: var(--dim); text-decoration: none; font-size: 13px; }
+h1 { font-size: 20px; margin: 8px 0 2px; }
+h2 { font-size: 14px; margin: 28px 0 10px; color: var(--dim); text-transform: uppercase; letter-spacing: .05em; }
+.dim { color: var(--dim); }
+.error { border: 1px solid var(--bad); border-radius: 8px; padding: 10px 14px; }
+.cards { display: grid; gap: 10px; }
+.card { border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 12px 14px; display: grid; gap: 6px; }
+.card .name { font-weight: 600; }
+.card .note { white-space: pre-wrap; overflow-wrap: anywhere; }
+.card .meta { font-size: 12px; color: var(--dim); }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn { border: 1px solid var(--line); background: var(--bg); border-radius: 6px; padding: 5px 12px; cursor: pointer; }
+.btn:hover { border-color: var(--dim); }
+.btn:disabled { opacity: .5; cursor: default; }
+.btn.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--dim); font-weight: normal; }
+td .actions { justify-content: flex-end; }
+.st-approved { color: var(--ok); } .st-denied { color: var(--bad); } .st-pending { color: var(--warn); }
+.empty { color: var(--dim); }

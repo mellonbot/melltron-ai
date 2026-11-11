@@ -82,6 +82,14 @@ details.thinking .t { white-space: pre-wrap; margin-top: 6px; }
 .notice { max-width: 760px; margin: 0 auto 8px; width: calc(100% - 32px); padding: 10px 14px; border: 1px solid var(--bad); border-radius: 8px; font-size: 13px; }
 .notice a { color: var(--accent); }
 
+.quota { max-width: 760px; margin: 0 auto; width: calc(100% - 32px); font-size: 12px; color: var(--dim); text-align: right; }
+.quota[data-low] { color: var(--warn); }
+.dim { color: var(--dim); }
+.request { max-width: 760px; margin: 0 auto 8px; width: calc(100% - 32px); padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); display: grid; gap: 8px; font-size: 13px; }
+.request p { margin: 0; }
+.request label { display: grid; gap: 4px; }
+.request input, .request textarea { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px; resize: vertical; }
+.request-actions { display: flex; gap: 10px; align-items: center; }
 .composer { display: flex; gap: 8px; align-items: flex-end; padding: 12px 16px; border-top: 1px solid var(--line); padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
 .composer textarea { flex: 1; resize: none; max-height: 40vh; min-height: 42px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; line-height: 1.45; }
 .composer textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }

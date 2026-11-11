@@ -1,0 +1,16 @@
+# Tailnet pass issuer for ai.melltron.build (see README.md → Tailnet pass).
+# Install: cp tools/tailnet-pass.service ~/.config/systemd/user/ && systemctl --user enable --now tailnet-pass
+[Unit]
+Description=Tailnet pass issuer for ai.melltron.build (listens on the Tailscale IP only)
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=%h/.config/ai-pass/secret
+
+[Service]
+ExecStart=/usr/bin/python3 -I %h/.local/bin/tailnet-pass
+# Tailscale may come up after us at boot: keep retrying until its address exists.
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

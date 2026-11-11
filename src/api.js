@@ -11,6 +11,7 @@
 // pull/delete/create stay private.
 
 import { verifyAccess } from "./access.js";
+import { standing, canChat, consume, describe, requestAccess, listVisitors, decide, freePrompts, VISITOR, REQUEST_LIMITS } from "./quota.js";
 
 export const json = (data, init = {}) =>
   new Response(JSON.stringify(data), {
@@ -29,8 +30,10 @@ export const DEFAULT_SYSTEM =
   "You are a helpful assistant. Always think and respond in English, unless the user explicitly writes in or asks for another language.";
 
 // PUBLIC="true" opens the app to anyone, with no Access login. The tunnels stay
-// locked to the service token; what keeps strangers from monopolising the GPU and
-// the Pi is the per-IP rate limit, so public mode fails closed without one.
+// locked to the service token. Strangers get FREE_PROMPTS chats, then need the
+// owner's approval (src/quota.js); tailnet devices with a pass are unlimited. The
+// per-IP rate limits are a coarse extra brake. Public mode fails closed without
+// the rate-limit bindings or the D1 database.
 const isPublic = (env) => (env.PUBLIC || "").trim() === "true";
 
 // Wraps a handler so it only runs for a verified Access user (or anyone, when
@@ -197,10 +200,23 @@ async function chat(request, env) {
     : [{ role: "system", content: (env.SYSTEM_PROMPT || "").trim() || DEFAULT_SYSTEM }, ...v.messages];
   const { backend, name } = route(v.model);
   if (!name) return json({ error: "bad_request", detail: "invalid model" }, { status: 400 });
+
+  let quota = null;
+  if (isPublic(env)) {
+    if (!env.DB) return json({ error: "quota_not_configured" }, { status: 503 });
+    quota = await standing(request, env);
+    if (quota.tier === "invalid") return json({ error: "visitor_required" }, { status: 400 });
+    if (!canChat(quota)) {
+      return json({ error: quota.tier === "denied" ? "denied" : "quota_exhausted", quota: describe(quota) }, { status: 403 });
+    }
+  }
+
   const payload = { model: name, messages, stream: true };
   if (v.think && BACKENDS[backend].show) payload.think = true;
   const res = await call(env, backend, "/api/chat", { method: "POST", body: JSON.stringify(payload), signal: request.signal });
   if (!res?.ok) return upstreamError(res, backend);
+  // Only prompts the model actually started answering count.
+  if (quota) await consume(env, quota);
 
   // Ollama streams NDJSON; pass it straight through.
   return new Response(res.body, {
@@ -209,9 +225,71 @@ async function chat(request, env) {
   });
 }
 
+// What the caller may do: tailnet / approved / free (+remaining) / pending / exhausted / denied.
+async function quotaRoute(request, env) {
+  if (!isPublic(env)) return json({ tier: "private" });
+  if (!env.DB) return json({ error: "quota_not_configured" }, { status: 503 });
+  const s = await standing(request, env);
+  if (s.tier === "invalid") return json({ error: "visitor_required" }, { status: 400 });
+  return json(describe(s));
+}
+
+async function readSmallJson(request, max = 4096) {
+  const raw = await request.text();
+  if (raw.length > max) return null;
+  try {
+    const b = JSON.parse(raw);
+    return b && typeof b === "object" && !Array.isArray(b) ? b : null;
+  } catch {
+    return null;
+  }
+}
+
+const cleanText = (v, max) => (typeof v === "string" ? v.replace(/[\u0000-\u001f\u007f]+/g, " ").trim().slice(0, max) : "");
+
+// A visitor out of free prompts asks the owner for more.
+async function accessRequest(request, env) {
+  if (!isPublic(env)) return json({ error: "not_found" }, { status: 404 });
+  if (!env.DB) return json({ error: "quota_not_configured" }, { status: 503 });
+  const s = await standing(request, env);
+  if (s.tier === "invalid") return json({ error: "visitor_required" }, { status: 400 });
+  if (s.tier === "tailnet") return json(describe(s));
+  const body = await readSmallJson(request);
+  if (!body) return json({ error: "bad_request", detail: "invalid JSON" }, { status: 400 });
+  const name = cleanText(body.name, REQUEST_LIMITS.name);
+  const note = cleanText(body.note, REQUEST_LIMITS.note);
+  if (!name) return json({ error: "bad_request", detail: "name is required" }, { status: 400 });
+  await requestAccess(env, s, { name, note });
+  return json(describe(await standing(request, env)));
+}
+
+// /api/admin/* sits behind its own Access app (owner only). Re-verify its JWT here
+// too, since preview URLs skip Access.
+const admin = (handler) => async (request, env, ctx, url) => {
+  const aud = (env.ADMIN_ACCESS_AUD || "").trim();
+  const who = await verifyAccess(request, { ...env, ACCESS_AUD: aud }, env.__fetch ?? fetch);
+  if (!who.ok) return json({ error: who.error }, { status: who.status });
+  if (!env.DB) return json({ error: "quota_not_configured" }, { status: 503 });
+  return handler(request, env, ctx, url, who);
+};
+
+const ACTIONS = new Set(["approve", "deny", "reset"]);
+
 export const routes = {
   "GET /api/ping": () => json({ ok: true, at: new Date().toISOString() }),
   "GET /api/me": gated((req, env, ctx, url, who) => json({ email: who.email, public: isPublic(env) })),
   "GET /api/models": gated(models, "MODELS_LIMIT"),
   "POST /api/chat": gated(chat, "CHAT_LIMIT"),
+  "GET /api/quota": gated(quotaRoute, "MODELS_LIMIT"),
+  "POST /api/access-request": gated(accessRequest, "MODELS_LIMIT"),
+  "GET /api/admin/visitors": admin(async (req, env, ctx, url, who) =>
+    json({ visitors: await listVisitors(env), freePrompts: freePrompts(env), admin: who.email })),
+  "POST /api/admin/visitors": admin(async (req, env) => {
+    const body = await readSmallJson(req);
+    if (!body || typeof body.id !== "string" || !VISITOR.test(body.id) || !ACTIONS.has(body.action)) {
+      return json({ error: "bad_request", detail: "need {id, action: approve|deny|reset}" }, { status: 400 });
+    }
+    const found = await decide(env, body.id, body.action);
+    return found ? json({ ok: true }) : json({ error: "not_found" }, { status: 404 });
+  }),
 };

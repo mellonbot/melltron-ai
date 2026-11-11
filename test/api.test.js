@@ -5,6 +5,8 @@ import assert from "node:assert/strict";
 import worker from "../src/index.js";
 import { _resetAccessCache } from "../src/access.js";
 import { validateChat, LIMITS, DEFAULT_SYSTEM } from "../src/api.js";
+import { _resetSchema } from "../src/quota.js";
+import { fakeD1 } from "./d1.js";
 
 const TEAM = "lab.cloudflareaccess.com";
 const AUD = "aud-123";
@@ -50,6 +52,7 @@ const chatBody = { model: "llama3.1:8b", messages: [{ role: "user", content: "hi
 
 beforeEach(() => {
   _resetAccessCache();
+  _resetSchema();
   calls = [];
   ollama = (path) => {
     if (path === "/api/tags") return Response.json({ models: [
@@ -272,9 +275,9 @@ const limiter = (limit) => {
   const seen = new Map();
   return { keys: seen, async limit({ key }) { const n = (seen.get(key) ?? 0) + 1; seen.set(key, n); return { success: n <= limit }; } };
 };
-const publicEnv = (over = {}) => ({ ...env, PUBLIC: "true", ACCESS_AUD: "", CHAT_LIMIT: limiter(2), MODELS_LIMIT: limiter(5), ...over });
-const anon = (path, e, { method = "GET", body, ip = "203.0.113.7" } = {}) =>
-  worker.fetch(new Request(`https://ai.melltron.build${path}`, { method, headers: { "content-type": "application/json", "cf-connecting-ip": ip }, body: body && JSON.stringify(body) }), e, {});
+const publicEnv = (over = {}) => ({ ...env, PUBLIC: "true", ACCESS_AUD: "", CHAT_LIMIT: limiter(2), MODELS_LIMIT: limiter(5), DB: fakeD1(), ...over });
+const anon = (path, e, { method = "GET", body, ip = "203.0.113.7", visitor = "visitor-0000000000000001" } = {}) =>
+  worker.fetch(new Request(`https://ai.melltron.build${path}`, { method, headers: { "content-type": "application/json", "cf-connecting-ip": ip, "x-ai-visitor": visitor }, body: body && JSON.stringify(body) }), e, {});
 
 test("public mode serves models and chat with no Access token", async () => {
   const e = publicEnv();
