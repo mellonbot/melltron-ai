@@ -21,14 +21,14 @@
   <circle cx="8" cy="25" r="2.3" fill="#d6a63c"/>
   <circle cx="16" cy="24" r="1.9" fill="#d6a63c">
     <animate attributeName="fill" dur="2.4s" repeatCount="indefinite"
-      keyTimes="0;.52;.57;.68;1" values="#d6a63c;#d6a63c;#c8ffff;#d6a63c;#d6a63c"/>
+      keyTimes="0;.52;.57;.68;1" values="#d6a63c;#d6a63c;#ffc0c9;#d6a63c;#d6a63c"/>
   </circle>
   <circle cx="24" cy="25" r="2.3" fill="#d6a63c">
     <animate attributeName="fill" dur="2.4s" repeatCount="indefinite"
-      keyTimes="0;.92;.96;1" values="#d6a63c;#d6a63c;#c8ffff;#d6a63c"/>
+      keyTimes="0;.92;.96;1" values="#d6a63c;#d6a63c;#ffc0c9;#d6a63c"/>
   </circle>
   <!-- current pulses -->
-  <g fill="none" stroke="#8ff9ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" filter="url(#g)">
+  <g fill="none" stroke="#ff8093" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" filter="url(#g)">
     <path d="M8 25V9l8 8 8-8v16" stroke-dasharray="10 60" stroke-dashoffset="-38">
       <animate attributeName="stroke-dashoffset" dur="2.4s" repeatCount="indefinite"
         values="10;-58" keyTimes="0;1"/>

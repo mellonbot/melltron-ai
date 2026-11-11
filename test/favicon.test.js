@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { ROOT_PULSE, applyPulse, flashFor, pulseFor } from "../tools/pulse.mjs";
 
 const svg = readFileSync(new URL("../public/favicon.svg", import.meta.url), "utf8");
@@ -25,7 +25,9 @@ test("pulse colour is deterministic, valid, and never the root's", () => {
   }
 });
 
-test("applyPulse swaps pulse and pad flash, refuses the root colour", () => {
+// Only meaningful on the template itself: after init the root pulse is gone from favicon.svg.
+const isTemplate = existsSync(new URL("../.template", import.meta.url));
+test("applyPulse swaps pulse and pad flash, refuses the root colour", { skip: !isTemplate && "initialised app" }, () => {
   const out = applyPulse(svg, "#ff80c3");
   assert.ok(!out.includes(ROOT_PULSE));
   assert.ok(out.includes("#ff80c3") && out.includes(flashFor("#ff80c3")));

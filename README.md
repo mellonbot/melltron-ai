@@ -1,94 +1,45 @@
-# melltron lab app template
+# AI — ai.melltron.build
 
-Starting point for every `<name>.melltron.build` app. One repo, one Worker, one subdomain per app, so a broken experiment can't take down the root or another app.
+LAB-003. Chat with the lab's own Ollama models (llama3.1:8b, deepseek-r1:8b, …) running on the office desktop's RTX 4060, from any browser. Built from [melltron-lab-template](https://github.com/mellonbot/melltron-lab-template); see that README for the general lab lifecycle.
 
-## Lifecycle
-
-```
- Use this template ─▶ init ─▶ build ─▶ connect to Cloudflare ─▶ register in root ─▶ … ─▶ retire
-   (new repo)       (once)   (PRs)     (Workers Builds)        (content/lab.json)
-```
-
-### 1. Create
-GitHub → this repo → **Use this template** → new repo under `mellonbot` (personal account, never a company org). Name it after the subdomain, e.g. `part-tracker`.
-
-### 2. Initialise
-```
-git clone … && cd part-tracker
-node tools/init.mjs part-tracker "Part Tracker"
-npm ci && npm run check
-git commit -am "init part-tracker" && git push
-```
-`init` rewrites the `template-app` / `Template App` placeholders, deletes `.template`, and prints the `lab.json` entry It also sets the favicon's pulse colour (see Favicon). It rejects bad or reserved subdomains (`www`, `api`, `lab`, …) and refuses to run twice. CI fails if an initialised repo still contains placeholders.
-
-### 3. Deploy
-Cloudflare dashboard → Workers & Pages → Create → **Import a repository** → pick the repo. Defaults are correct: no build command, deploy `npx wrangler deploy`. Production branch `main`; other branches get preview URLs. The custom domain in `wrangler.jsonc` is created on first deploy.
-
-### 4. Register
-In `melltron.build`, append to `content/lab.json` (append only; IDs are array position), then rebuild:
-```json
-{ "name": "Part Tracker", "subdomain": "part-tracker", "status": "building", "summary": "One line." }
-```
-Set `"status": "live"` when it's usable. Only `live` entries link out.
-
-### 5. Retire
-Set `"status": "retired"` in `lab.json` (never delete; that renumbers every later ID). Then either delete the Worker (its subdomain stops resolving) or replace `public/` with a tombstone page. Archive the repo.
-
-## Layout
+## How it fits together
 
 ```
-src/index.js        request flow: /_health → /api/* → static assets
-src/api.js          app routes: "METHOD /path" → handler
-src/edge.js         shared edge contract: security headers + cache policy
-public/             static assets (no build step; served as-is)
-test/               node --test, no Workers runtime needed
-tools/init.mjs      one-time setup
-tools/pulse.mjs     favicon pulse colour: derived from the subdomain
-wrangler.jsonc      Worker config, custom domain, bindings
+browser ──▶ ai.melltron.build ──▶ Worker lab-ai ──▶ ollama-tunnel.melltron.build ──▶ cloudflared (desktop) ──▶ Ollama 127.0.0.1:11434
+            [Access: owner login]   [verifies Access JWT]  [Access: service token only]
 ```
 
-## Edge contract
+- **Two Access gates.** `ai.melltron.build` requires the owner's login. `ollama-tunnel.melltron.build` admits only the service token stored as Worker secrets, so no browser can reach Ollama directly.
+- **The Worker re-verifies the Access JWT** on every `/api/*` call (`src/access.js`). Workers preview URLs bypass the custom-domain Access app, so without this check a preview build would be an open proxy to the GPU. It fails closed (503) until `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD` are set.
+- **Narrow proxy.** Only `GET /api/tags`, `POST /api/show` and `POST /api/chat` are called upstream. Requests are rebuilt from validated fields (`model`, `messages[].role/content`, `think`), so pull/delete/create and request options like `keep_alive` can't be reached.
+- **Conversations live in the browser** (`localStorage`); nothing is stored server-side.
 
-Every response passes through `finalize()` in `src/edge.js`:
+## API
 
-| Response | Cache-Control |
-| --- | --- |
-| Static HTML | `max-age=300, must-revalidate` |
-| Static file named `*.<hash>.<ext>` (8+ hex chars) | `max-age=31536000, immutable` |
-| Other static files | asset server default (revalidate) |
-| `/api/*`, `/_health` | `no-store` (set by `json()`) |
+| Route | Auth | Purpose |
+|---|---|---|
+| `GET /_health`, `GET /api/ping` | public | version / liveness |
+| `GET /api/me` | Access | signed-in email |
+| `GET /api/models` | Access | installed models, with `thinking` capability |
+| `POST /api/chat` | Access | `{model, messages, think?}` → Ollama NDJSON stream |
 
-The security headers match `melltron.build/src/worker.js` exactly, so the whole domain has one posture. The CSP is same-origin only, with no inline `<script>`/`<style>`. Adding a third-party origin (analytics, fonts, an external API from the browser) means editing the CSP on purpose.
+Errors are JSON `{error}`: `offline` (desktop/Ollama down), `tunnel_auth` (service token refused), `not_configured`, `access_not_configured`, `unauthenticated`, `upstream` (+`detail`).
 
-The copy is the weak point: two repos holding the same headers will drift. When there are three or more apps, move `edge.js` into a shared package, or have the root's CI diff it.
+## Configuration
 
-`/_health` returns `{ app, version, deployed }` from the Worker version metadata. Use it for uptime checks and to confirm which build is live.
+`wrangler.jsonc` → `vars`: `OLLAMA_URL`, `ACCESS_TEAM_DOMAIN` (e.g. `mellon.cloudflareaccess.com`), `ACCESS_AUD` (the `ai.melltron.build` Access application's AUD tag).
 
-## Favicon
+Secrets: `wrangler secret put OLLAMA_CLIENT_ID` and `OLLAMA_CLIENT_SECRET` (the Access service token).
 
-Every lab app uses the root site's circuit-board M (`public/favicon.svg`, an SVG animated with SMIL only, so it passes the CSP). The only thing that changes per app is the colour of the current pulse, so all lab tabs read as one family but are each distinct:
+### Desktop tunnel (cloudflared)
 
-- `init` derives the colour from the subdomain: same name, same colour, and nothing to track. Hues are restricted so the pulse never lands on the root's cyan, never on greens (they disappear against the traces), and never on the gold of the pads. Pick a colour yourself with `--pulse '#rrggbb'`.
-- CI fails if an initialised app still uses the root's pulse colour.
-- `apple-touch-icon` points at the root's PNG, since there is no build step here to rasterise one.
-- The geometry is a copy of `melltron.build/static/favicon.svg`. If the root icon is redrawn, copy it here, keeping the root colours (`#8ff9ff` / `#c8ffff`), because they are what `init` replaces.
+Cloudflare Zero Trust → Networks → Tunnels → create `mellonlab-office`, install the connector on the desktop as a service, and add the public hostname:
 
-## Extending
+- `ollama-tunnel.melltron.build` → `HTTP` `localhost:11434`
+- **HTTP Host Header: `localhost:11434`.** Ollama rejects non-local Host headers (empty 403).
 
-**Routes:** add to `routes` in `src/api.js`: `"POST /api/parts": async (req, env) => json(...)`.
+Then add an Access application for `ollama-tunnel.melltron.build` with a single **Service Auth** policy that allows only the service token above.
 
-**Storage / bindings:** declare in `wrangler.jsonc` (`d1_databases`, `kv_namespaces`, `r2_buckets`), access via `env.<BINDING>`. Bindings are per-app; never share a database between lab apps, because shared state removes the isolation.
+## Develop
 
-**Secrets:** local in `.dev.vars` (gitignored); production via `npx wrangler secret put NAME`. Never in `wrangler.jsonc` `vars`, which is committed.
-
-**Hashed assets:** for long-cached CSS/JS, name files `app.<hash>.css` (e.g. first 10 hex of SHA-256) and update the reference. Unhashed names stay safe by default.
-
-## Commands
-```
-npm run dev      # wrangler dev at :8787, real Workers runtime
-npm test         # unit tests on Node 22
-npm run check    # placeholders gone + tests + wrangler config/bundle dry-run (what CI runs)
-```
-
-## License
-Code MIT, content all rights reserved. See [LICENSE](LICENSE).
+`npm run dev` · `npm test` · `npm run check` (CI runs the same). Tests fake Ollama and the Access certs endpoint and sign real RS256 tokens. Node ≥ 22.

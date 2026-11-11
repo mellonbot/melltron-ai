@@ -1,9 +1,9 @@
 {
-  // Template App — lab app on template-app.melltron.build.
+  // AI — lab app on ai.melltron.build.
   // Isolated by design: own repo, own Worker, own domain binding. Nothing in the
   // melltron.build root routes here; the root only lists it in content/lab.json.
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "lab-template-app",
+  "name": "lab-ai",
   "main": "src/index.js",
   "compatibility_date": "2026-11-01",
   "assets": {
@@ -13,12 +13,19 @@
     "html_handling": "auto-trailing-slash",
     "run_worker_first": true
   },
-  "routes": [{ "pattern": "template-app.melltron.build", "custom_domain": true }],
+  "routes": [{ "pattern": "ai.melltron.build", "custom_domain": true }],
   // One canonical origin. Branch builds run `wrangler preview`, which needs the
   // previews block (empty is fine) and preview_urls to be reachable.
   "workers_dev": false,
   "preview_urls": true,
   "previews": {},
+  // Non-secret config. Secrets (wrangler secret put): OLLAMA_CLIENT_ID, OLLAMA_CLIENT_SECRET
+  // (the Access service token admitted by the Ollama tunnel). Empty values fail closed.
+  "vars": {
+    "OLLAMA_URL": "https://ollama-tunnel.melltron.build",
+    "ACCESS_TEAM_DOMAIN": "",
+    "ACCESS_AUD": ""
+  },
   "version_metadata": { "binding": "CF_VERSION_METADATA" },
   "observability": { "enabled": true }
 }

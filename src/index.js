@@ -6,7 +6,7 @@
 import { finalize } from "./edge.js";
 import { json, routes } from "./api.js";
 
-const APP = "template-app";
+const APP = "ai";
 
 export default {
   async fetch(request, env, ctx) {

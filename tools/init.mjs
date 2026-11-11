@@ -12,7 +12,7 @@ import { ROOT_PULSE, applyPulse, pulseFor } from "./pulse.mjs";
 const FILES = ["wrangler.jsonc", "package.json", "package-lock.json", "src/index.js", "public/index.html", "public/404.html"];
 const MARKER = ".template";
 const ICON = "public/favicon.svg";
-const SLUG = /^[a-z][a-z0-9-]{1,30}[a-z0-9]$/;
+const SLUG = /^[a-z][a-z0-9-]{0,30}[a-z0-9]$/; // 2-32 chars (lab-ai uses "ai")
 const RESERVED = new Set(["template-app", "www", "api", "mail", "lab", "admin", "static", "cdn"]);
 
 const argv = process.argv.slice(2);

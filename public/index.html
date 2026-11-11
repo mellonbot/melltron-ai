@@ -2,20 +2,57 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Template App · melltron.build lab</title>
-<meta name="description" content="Template App — a melltron.build lab app.">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>AI · melltron.build lab</title>
+<meta name="description" content="AI — chat with the lab's own Ollama models, running on a home GPU.">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="https://melltron.build/apple-touch-icon.png">
 <link rel="stylesheet" href="/app.css">
 <script src="/app.js" defer></script>
 </head>
 <body>
-<header><a href="https://melltron.build/lab/">melltron.build / lab</a></header>
-<main>
-<h1>Template App</h1>
-<p>Lab app scaffold. Replace this page.</p>
-<p>API: <code id="ping">…</code></p>
-</main>
+<div class="shell">
+  <aside id="sidebar" class="sidebar">
+    <div class="side-top">
+      <a class="crumb" href="https://melltron.build/lab/">melltron.build / lab</a>
+      <button id="new-chat" class="btn primary" type="button">+ New chat</button>
+    </div>
+    <nav id="chats" class="chats" aria-label="Conversations"></nav>
+    <div class="side-foot">
+      <span id="status" class="status" data-state="checking"><i></i><span id="status-text">Checking…</span></span>
+      <span id="who" class="who"></span>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="bar">
+      <button id="toggle-side" class="btn icon" type="button" aria-label="Show conversations" aria-controls="sidebar" aria-expanded="false">☰</button>
+      <h1>AI</h1>
+      <label class="model">
+        <span class="sr">Model</span>
+        <select id="model" disabled><option>Loading models…</option></select>
+      </label>
+      <label class="think" id="think-wrap" hidden>
+        <input type="checkbox" id="think" checked> Show reasoning
+      </label>
+    </header>
+
+    <section id="log" class="log" aria-live="polite">
+      <div id="empty" class="empty">
+        <p class="big">Local models, on demand.</p>
+        <p>Chats run on Ollama on the lab desktop's GPU and stream back here. Conversations are saved in this browser only.</p>
+      </div>
+    </section>
+
+    <div id="notice" class="notice" hidden></div>
+
+    <form id="composer" class="composer">
+      <label class="sr" for="input">Message</label>
+      <textarea id="input" rows="1" placeholder="Message the model…  (Enter to send, Shift+Enter for a new line)" autocomplete="off"></textarea>
+      <button id="send" class="btn primary" type="submit" disabled>Send</button>
+      <button id="stop" class="btn" type="button" hidden>Stop</button>
+    </form>
+  </main>
+</div>
 </body>
 </html>
