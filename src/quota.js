@@ -125,13 +125,16 @@ export const describe = (s) => ({
 export const REQUEST_LIMITS = { name: 60, note: 500 };
 
 // Marks the visitor as asking for access. Approved/denied visitors keep their status.
+// -> true when this is a new request (not an edit of a pending one), i.e. worth an alert.
 export async function requestAccess(env, s, { name, note }) {
   const t = now();
+  const prev = await env.DB.prepare("SELECT status FROM visitors WHERE id = ?").bind(s.visitor).first();
   await env.DB.prepare(
     "INSERT INTO visitors (id, ip, prompts, status, name, note, created, updated, requested) VALUES (?, ?, 0, 'pending', ?, ?, ?, ?, ?) " +
       "ON CONFLICT(id) DO UPDATE SET status = CASE WHEN status IN ('approved','denied') THEN status ELSE 'pending' END, " +
       "name = excluded.name, note = excluded.note, ip = excluded.ip, updated = excluded.updated, requested = excluded.requested",
   ).bind(s.visitor, s.ip, name, note, t, t, t).run();
+  return !prev || prev.status === "free";
 }
 
 export async function listVisitors(env) {

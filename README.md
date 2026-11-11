@@ -16,6 +16,7 @@ browser ──▶ ai.melltron.build ──▶ Worker melltron-ai ─┬▶ ollam
   - **Tailnet devices are unlimited.** Opening the pass page (`http://<pass host's Tailscale IP>:8787/`, see *Tailnet pass* below) on a tailnet device redirects back here with a signed 30-day pass that the browser keeps.
   - **Everyone else gets `FREE_PROMPTS` (10) chats**, counted per browser (a random id kept in `localStorage`) and per IP, so clearing the browser doesn't reset them. Only chats the model started answering count.
   - **Then they ask the owner.** The page shows a name + note form; requests land on **`/admin`** (owner-only Access app), where the owner can approve (unlimited), deny, or reset (back to 10 free).
+  - **The owner gets an email** for each new request (`src/alert.js`): `ALERT_EMAIL` send_email binding, from `ALERT_FROM` (`ai@melltron.build`, an Email Sending domain) to the `ALERT_TO` secret (a verified destination address on the account). At most `ALERT_MAX_PER_HOUR` (10) alerts an hour; editing a pending request doesn't re-send. Without the binding or secret, requests still work, just silently.
   - Counts and requests live in D1 (`DB`, database `melltron-ai`); tables are created on first use. Public mode fails closed (503) without `DB` or the rate-limit bindings.
   - `CHAT_LIMIT` / `MODELS_LIMIT` (10 and 30 a minute per IP) are an extra brake. Cloudflare's rate limiter is approximate and didn't block a test burst in practice; the quota is what holds.
 - **The tunnels stay private.** `ollama-tunnel.melltron.build` and `hailo-tunnel.melltron.build` admit only the service token stored as Worker secrets, so no browser can reach Ollama or hailo-ollama directly, and pull/delete stay unreachable.
@@ -43,7 +44,7 @@ Errors are JSON `{error, backend?}`: `offline` (that machine or its server is do
 
 `wrangler.jsonc` → `vars`: `PUBLIC` (`"true"` = no login), `FREE_PROMPTS`, `ADMIN_ACCESS_AUD` (AUD of the owner-only Access app on `ai.melltron.build/admin` + `/api/admin`), `OLLAMA_URL`, `HAILO_URL` (empty disables the Pi), `ACCESS_TEAM_DOMAIN` (e.g. `mellon.cloudflareaccess.com`), `ACCESS_AUD` (the `ai.melltron.build` Access application's AUD tag).
 
-Secrets: `wrangler secret put OLLAMA_CLIENT_ID` and `OLLAMA_CLIENT_SECRET` (the Access service token, admitted by both tunnels), and `PASS_SECRET` (signs tailnet passes; without it nobody gets a pass and everyone is on the free tier).
+Secrets: `wrangler secret put OLLAMA_CLIENT_ID` and `OLLAMA_CLIENT_SECRET` (the Access service token, admitted by both tunnels), `PASS_SECRET` (signs tailnet passes; without it nobody gets a pass and everyone is on the free tier), and `ALERT_TO` (where access-request emails go).
 
 ### Tailnet pass
 
