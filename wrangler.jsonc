@@ -22,8 +22,10 @@
   // Non-secret config. Secrets (wrangler secret put): OLLAMA_CLIENT_ID, OLLAMA_CLIENT_SECRET, PASS_SECRET (signs tailnet passes), ALERT_TO (owner's email for access-request alerts)
   // (the Access service token admitted by the Ollama and Hailo tunnels). Empty values fail closed.
   "vars": {
-    "OLLAMA_URL": "https://ollama-tunnel.melltron.build",
-    // hailo-ollama on the Pi (Hailo-10H). Same service token; empty disables it.
+    // Ollama on the office desktop. Off: its tunnel (mellonlab-office) is disabled.
+    // Set back to "https://ollama-tunnel.melltron.build" once the tunnel is re-enabled.
+    "OLLAMA_URL": "",
+    // hailo-ollama on the Pi (Hailo-10H), port 11434. Same service token; empty disables it.
     "HAILO_URL": "https://hailo-tunnel.melltron.build",
     // Open to anyone, no Access login. Needs the rate limits below (fails closed without).
     "PUBLIC": "true",

@@ -4,8 +4,8 @@
 // The Worker is a narrow proxy to the owner's Ollama-compatible servers, each reached
 // through a Cloudflare Tunnel that only admits the Access service token held in
 // OLLAMA_CLIENT_ID / OLLAMA_CLIENT_SECRET:
-//   desktop  env.OLLAMA_URL  Ollama on the office desktop (RTX 4060)
-//   hailo    env.HAILO_URL   hailo-ollama on the Pi's Hailo-10H AI HAT
+//   desktop  env.OLLAMA_URL  Ollama on the office desktop (RTX 4060); empty = off
+//   hailo    env.HAILO_URL   hailo-ollama on the Pi's Hailo-10H AI HAT; empty = off
 // Desktop model ids are the plain Ollama names; Pi model ids are "hailo/<name>".
 // Only /api/tags (+ /api/show) and /api/chat are ever called upstream, so
 // pull/delete/create stay private.
@@ -145,9 +145,11 @@ async function listBackend(env, backend) {
 }
 
 // Lists every configured backend. One being offline doesn't hide the others; the
-// request only fails when none can be listed.
+// request only fails when none can be listed. With nothing configured, the desktop
+// is still tried so the UI gets not_configured instead of an empty list.
 async function models(request, env) {
-  const names = Object.keys(BACKENDS).filter((k) => k === "desktop" || configured(env, k));
+  const on = Object.keys(BACKENDS).filter((k) => configured(env, k));
+  const names = on.length ? on : ["desktop"];
   const results = await Promise.all(names.map((k) => listBackend(env, k)));
   const backends = {};
   const out = [];

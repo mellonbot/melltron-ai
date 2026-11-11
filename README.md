@@ -1,16 +1,16 @@
 # AI — ai.melltron.build
 
-LAB-003. Chat with the lab's own models from any browser: Ollama models (llama3.1:8b, deepseek-r1:8b, …) on the office desktop's RTX 4060, and small LLMs (qwen2.5, llama3.2:3b, …) on a Raspberry Pi 5's Hailo-10H AI HAT via hailo-ollama. Built from [melltron-lab-template](https://github.com/mellonbot/melltron-lab-template); see that README for the general lab lifecycle.
+LAB-003. Chat with the lab's own models from any browser: small LLMs (qwen2.5, llama3.2:3b, …) on a Raspberry Pi 5's Hailo-10H AI HAT via hailo-ollama, and (when enabled) Ollama models (llama3.1:8b, deepseek-r1:8b, …) on the office desktop's RTX 4060. **Currently Pi only:** the desktop tunnel is disabled and `OLLAMA_URL` is empty. Built from [melltron-lab-template](https://github.com/mellonbot/melltron-lab-template); see that README for the general lab lifecycle.
 
 ## How it fits together
 
 ```
-browser ──▶ ai.melltron.build ──▶ Worker melltron-ai ─┬▶ ollama-tunnel.melltron.build ──▶ cloudflared (desktop) ──▶ Ollama 127.0.0.1:11434
-            [public, no login]      [per-IP rate limit]   └▶ hailo-tunnel.melltron.build  ──▶ cloudflared (Pi)      ──▶ hailo-ollama 127.0.0.1:8000
+browser ──▶ ai.melltron.build ──▶ Worker melltron-ai ─┬▶ ollama-tunnel.melltron.build ──▶ cloudflared (desktop) ──▶ Ollama 127.0.0.1:11434   [disabled]
+            [public, no login]      [per-IP rate limit]   └▶ hailo-tunnel.melltron.build  ──▶ cloudflared (Pi)      ──▶ hailo-ollama 127.0.0.1:11434
                                                              [Access: service token only, both]
 ```
 
-- **Two backends, one picker.** Desktop models keep their Ollama names; Pi models are listed as `hailo/<name>` and the Worker strips the prefix before forwarding. `/api/models` lists every configured backend and still answers when one is offline (`backends` says which). The Pi backend is off when `HAILO_URL` is empty.
+- **Two backends, one picker.** Each is off when its URL var (`OLLAMA_URL`, `HAILO_URL`) is empty; an off backend is left out of `/api/models` and its models answer `not_configured`. Desktop models keep their Ollama names; Pi models are listed as `hailo/<name>` and the Worker strips the prefix before forwarding. `/api/models` lists every configured backend and still answers when one is offline (`backends` says which).
 
 - **Public, with a prompt quota.** With `PUBLIC="true"` (the default in `wrangler.jsonc`) anyone can open the app, with no login (`src/quota.js`):
   - **Tailnet devices are unlimited.** Opening the pass page (`http://<pass host's Tailscale IP>:8787/`, see *Tailnet pass* below) on a tailnet device redirects back here with a signed 30-day pass that the browser keeps.
@@ -61,6 +61,8 @@ systemctl --user enable --now tailnet-pass
 
 ### Desktop tunnel (cloudflared)
 
+**Disabled (Nov 2026).** To bring it back: re-enable the tunnel, then set `OLLAMA_URL` to `https://ollama-tunnel.melltron.build` in `wrangler.jsonc`.
+
 Cloudflare Zero Trust → Networks → Tunnels → create `mellonlab-office`, install the connector on the desktop as a service, and add the public hostname:
 
 - `ollama-tunnel.melltron.build` → `HTTP` `localhost:11434`
@@ -72,7 +74,7 @@ Then add an Access application for `ollama-tunnel.melltron.build` with a single 
 
 Tunnel `hailo-pi`, connector installed on the Pi as a system service, public hostname:
 
-- `hailo-tunnel.melltron.build` → `HTTP` `localhost:8000` (hailo-ollama, built from [hailo_model_zoo_genai](https://github.com/hailo-ai/hailo_model_zoo_genai))
+- `hailo-tunnel.melltron.build` → `HTTP` `localhost:11434` (hailo-ollama, moved from `:8000` in Nov 2026; cloudflared runs on the Pi, so use `localhost`, not `hailo-pi.local`, built from [hailo_model_zoo_genai](https://github.com/hailo-ai/hailo_model_zoo_genai))
 
 plus an Access application for `hailo-tunnel.melltron.build` with the same single **Service Auth** policy. hailo-ollama runs one model at a time on the HAT, so the first message after switching models takes ~30 s while it loads. Reasoning from `deepseek_r1_distill_qwen` arrives inline, ending in `</think>` (the opening tag is part of the prompt); the UI splits it into the Reasoning panel.
 

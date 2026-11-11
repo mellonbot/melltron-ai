@@ -242,6 +242,20 @@ test("one backend offline still lists the other; both offline fails", async () =
   assert.deepEqual(body.backends, { desktop: "offline", hailo: "offline" });
 });
 
+test("unconfigured desktop is left out; unprefixed models are not_configured", async () => {
+  const e = { ...hailoEnv, OLLAMA_URL: "", __fetch: byHost(() => { throw new Error("desktop called"); }, hailoUp) };
+  let res = await req("/api/models", { e });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.deepEqual(body.models.map((m) => m.name), ["hailo/qwen2:1.5b"]);
+  assert.deepEqual(body.backends, { hailo: "online" });
+
+  res = await req("/api/chat", { method: "POST", body: chatBody, e });
+  assert.equal(res.status, 503);
+  assert.deepEqual(await res.json(), { error: "not_configured", backend: "desktop" });
+  assert.ok(!calls.some((c) => c.host === "ollama-tunnel.example"));
+});
+
 test("hailo/ models route to the Pi with the prefix stripped and no think flag", async () => {
   const e = { ...hailoEnv, __fetch: byHost((p, i) => ollama(p, i), hailoUp) };
   const res = await req("/api/chat", { method: "POST", body: { ...chatBody, model: "hailo/qwen2:1.5b", think: true }, e });
