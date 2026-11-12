@@ -19,11 +19,19 @@
   "workers_dev": false,
   "preview_urls": true,
   "previews": {},
-  // Non-secret config. Secrets (wrangler secret put): OLLAMA_CLIENT_ID, OLLAMA_CLIENT_SECRET, PASS_SECRET (signs tailnet passes), ALERT_TO (owner's email for access-request alerts)
+  // Non-secret config. Secrets (wrangler secret put): OLLAMA_CLIENT_ID, OLLAMA_CLIENT_SECRET, LOCALAI_API_KEY (optional, LocalAI API_KEY), PASS_SECRET (signs tailnet passes), ALERT_TO (owner's email for access-request alerts)
   // (the Access service token admitted by the Ollama and Hailo tunnels). Empty values fail closed.
   "vars": {
-    "OLLAMA_URL": "https://ollama-tunnel.melltron.build",
-    // hailo-ollama on the Pi (Hailo-10H). Same service token; empty disables it.
+    // Ollama on the office desktop: retired. Keep empty. ollama-tunnel.melltron.build now
+    // routes to hailo-ollama on the Pi, so setting it here would duplicate the Pi models.
+    "OLLAMA_URL": "",
+    // LocalAI on the office desktop (RTX 4060), 127.0.0.1:8090, via tunnel mellonlab-office.
+    // Same service token; empty disables it. Models appear as "rtx/<id>".
+    "LOCALAI_URL": "https://localai-tunnel.melltron.build",
+    // Optional comma-separated LocalAI model ids to offer (empty = everything /v1/models
+    // lists, including embedding/TTS/image models that can't chat).
+    "LOCALAI_MODELS": "llama-3.1-8b-instruct,deepseek-r1-distill-qwen-7b",
+    // hailo-ollama on the Pi (Hailo-10H), port 11434. Same service token; empty disables it.
     "HAILO_URL": "https://hailo-tunnel.melltron.build",
     // Open to anyone, no Access login. Needs the rate limits below (fails closed without).
     "PUBLIC": "true",

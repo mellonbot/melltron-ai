@@ -203,9 +203,12 @@ function showNotice(text, withReload) {
   els.notice.hidden = false;
 }
 
-const BACKEND_LABEL = { desktop: "Desktop · RTX 4060", hailo: "Pi · Hailo-10H" };
+const BACKEND_LABEL = { desktop: "Desktop · RTX 4060", localai: "Desktop · RTX 4060 · LocalAI", hailo: "Pi · Hailo-10H" };
+// Must match BACKENDS[*].prefix in src/api.js.
+const PREFIX = { localai: "rtx/", hailo: "hailo/" };
 const OFFLINE = {
   desktop: "The lab desktop is offline, or Ollama isn't running on it.",
+  localai: "The lab desktop is offline, or LocalAI isn't running on it.",
   hailo: "The Pi is offline, or hailo-ollama isn't running on it.",
 };
 const ERRORS = {
@@ -245,7 +248,7 @@ async function loadModels() {
     const data = await (await api("/api/models")).json();
     models = data.models || [];
     els.model.replaceChildren();
-    // One group per machine, desktop first.
+    // One group per backend: desktop, then LocalAI, then the Pi.
     const groups = new Map();
     for (const m of models) {
       const k = m.backend || "desktop";
@@ -256,13 +259,14 @@ async function loadModels() {
       }
       const o = document.createElement("option");
       o.value = m.name;
-      const label = m.name.replace(/^hailo\//, "");
+      const p = PREFIX[k] || "";
+      const label = p && m.name.startsWith(p) ? m.name.slice(p.length) : m.name;
       // "qwen2.5-coder:1.5b · 1.5B" says the size twice and gets cut off on phones.
       const size = m.parameters && !label.toLowerCase().endsWith(":" + m.parameters.toLowerCase()) ? m.parameters : "";
       o.textContent = size ? `${label} · ${size}` : label;
       groups.get(k).append(o);
     }
-    for (const k of ["desktop", "hailo", ...groups.keys()]) if (groups.has(k)) { els.model.append(groups.get(k)); groups.delete(k); }
+    for (const k of ["desktop", "localai", "hailo", ...groups.keys()]) if (groups.has(k)) { els.model.append(groups.get(k)); groups.delete(k); }
     if (!models.length) {
       els.model.append(new Option("No models installed"));
       setStatus("error", "No models");
@@ -376,9 +380,10 @@ const touch = matchMedia("(pointer: coarse)");
 function autosize() { els.input.style.height = "auto"; els.input.style.height = Math.min(els.input.scrollHeight, innerHeight * 0.4) + "px"; }
 
 // Some models put their reasoning inline as <think>…</think> instead of a separate
-// field. deepseek-r1 on hailo-ollama even drops the opening tag (its chat template
-// adds it), so for those everything before </think> is reasoning. Split while streaming.
-const inlineThinker = (model) => /^hailo\/.*(deepseek|r1)/i.test(model || "");
+// field. deepseek-r1 on hailo-ollama (and some GGUF chat templates on LocalAI) even
+// drops the opening tag, so for those everything before </think> is reasoning.
+// Split while streaming.
+const inlineThinker = (model) => /^(hailo|rtx)\/.*(deepseek|r1)/i.test(model || "");
 function splitThink(reply, raw, open) {
   let t = raw.trimStart();
   if (t.startsWith("<think>")) { t = t.slice(7); open = true; }
@@ -442,7 +447,7 @@ async function send() {
         const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
         if (!line) continue;
         let evt; try { evt = JSON.parse(line); } catch { continue; }
-        if (evt.error) throw new Error(`Ollama: ${evt.error}`);
+        if (evt.error) throw new Error(`Model server: ${evt.error}`);
         if (evt.message?.thinking) reply.thinking += evt.message.thinking;
         if (evt.message?.content) { raw += evt.message.content; splitThink(reply, raw, inlineThinker(c.model)); }
         if (evt.done && evt.eval_count && evt.eval_duration) {
