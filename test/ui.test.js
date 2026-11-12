@@ -7,6 +7,21 @@ const read = (f) => readFileSync(new URL(`../public/${f}`, import.meta.url), "ut
 const css = read("app.css");
 const html = read("index.html");
 
+test("link preview names LocalAI and the Pi", () => {
+  const desc = html.match(/name="description" content="([^"]*)"/)?.[1] || "";
+  assert.match(desc, /LocalAI/);
+  assert.match(desc, /Hailo-10H/);
+  assert.doesNotMatch(desc, /Ollama/);
+});
+
+test("visitor errors name the machine that failed", () => {
+  const js = read("app.js");
+  assert.match(js, /LocalAI isn't running/);
+  assert.match(js, /hailo-ollama isn't running/);
+  assert.doesNotMatch(js, /isn't connected to Ollama/);
+  assert.doesNotMatch(js, /Ollama: /);
+});
+
 test("[hidden] wins over author display rules", () => {
   // .request { display: grid } once kept the access form on screen after access was granted.
   assert.match(css, /\[hidden\]\s*\{\s*display:\s*none\s*!important;?\s*\}/);
