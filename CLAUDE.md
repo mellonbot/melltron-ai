@@ -4,7 +4,7 @@ A `*.melltron.build` lab app built from melltron-lab-template. See README.md for
 
 ## Invariants
 - **Isolation.** Own repo, own Worker, own bindings. Never call into or share storage with another lab app or the root site.
-- **Edge contract.** All responses go through `finalize()` in `src/edge.js`. Don't bypass it, and don't change the security headers here without changing `melltron.build/src/worker.js` to match.
+- **Edge contract.** All responses go through `finalize()` in `src/edge.js`. Don't bypass it, and don't change the security headers here without changing `melltron.build/src/headers.js` to match.
 - **Strict CSP.** No inline scripts/styles, no third-party origins, unless the CSP is edited on purpose and the reason is in the commit message.
 - **No secrets in git.** `.dev.vars` locally, `wrangler secret put` in production.
 - **Personal, not company.** No company code, data, names, or credentials.
