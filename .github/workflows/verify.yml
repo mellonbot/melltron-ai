@@ -1,0 +1,45 @@
+# Proves production serves the committed public/ files under the committed edge
+# policy. Cloudflare deploys main on push and does not tell GitHub the bytes match.
+#   push to main  → poll ai.melltron.build until public/ matches (≤10 min), then verify
+#   daily         → re-verify
+#   manual        → verify any origin, such as a branch Preview URL
+# /_health is checked for app, version and deployed. It does not carry the git commit.
+name: verify
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "47 12 * * *" # ~06:47 Central
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "Origin to verify (default: production)"
+        required: false
+        default: "https://ai.melltron.build"
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  production:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      BASE_URL: ${{ inputs.base_url || 'https://ai.melltron.build' }}
+      WORKERS_DEV_URL: https://melltron-ai.ethan-mellon.workers.dev/
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+      - name: Install headless Chromium (not a project dependency; keeps Workers Builds lean)
+        run: npm i --no-save --no-audit --no-fund playwright@1.63.0 && npx playwright install --with-deps chromium
+      - name: Verify
+        run: |
+          args=(--wait 600)
+          [ "$BASE_URL" = "https://ai.melltron.build" ] && args+=(--prod)
+          node tools/smoke.mjs "$BASE_URL" "${args[@]}"
