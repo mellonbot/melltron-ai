@@ -105,3 +105,5 @@ plus an Access application for `hailo-tunnel.melltron.build` with the same singl
 ## Develop
 
 `npm run dev` · `npm test` · `npm run check` (CI runs the same). Tests fake Ollama and the Access certs endpoint and sign real RS256 tokens. Node ≥ 22.
+
+After every push to `main`, `.github/workflows/verify.yml` waits until https://ai.melltron.build serves the committed `public/` files, then checks security headers against `src/edge.js`, the 404 page, `/_health`, http → https, TLS runway, and that the production workers.dev URL stays off. It loads the public pages in headless Chromium. `/admin` is behind Cloudflare Access, so a login redirect there counts as success. `/_health` reports `app`, `version`, and `deployed`; it does not include the git commit. PRs still stop at `npm run check`.

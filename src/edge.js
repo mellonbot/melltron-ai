@@ -1,5 +1,5 @@
 // Edge contract shared by every *.melltron.build app.
-// Source of truth: melltron.build/src/worker.js. Keep the headers identical so
+// Source of truth: melltron.build/src/headers.js. Keep the headers identical so
 // the whole domain has one security posture; if you change one, change both.
 
 export const SECURITY_HEADERS = {

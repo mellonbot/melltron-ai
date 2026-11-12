@@ -1,4 +1,4 @@
-// AI lab — chat UI for the lab's Ollama models.
+// AI lab — chat UI for LocalAI on the desktop GPU and hailo-ollama on the Pi.
 // External script only (strict CSP). Model output is untrusted: everything is built
 // with DOM APIs and textContent, never innerHTML.
 
@@ -207,14 +207,14 @@ const BACKEND_LABEL = { desktop: "Desktop · RTX 4060", localai: "Desktop · RTX
 // Must match BACKENDS[*].prefix in src/api.js.
 const PREFIX = { localai: "rtx/", hailo: "hailo/" };
 const OFFLINE = {
-  desktop: "The lab desktop is offline, or Ollama isn't running on it.",
+  desktop: "Desktop Ollama isn't running. The desktop GPU models are served by LocalAI.",
   localai: "The lab desktop is offline, or LocalAI isn't running on it.",
   hailo: "The Pi is offline, or hailo-ollama isn't running on it.",
 };
 const ERRORS = {
-  offline: OFFLINE.desktop,
+  offline: "A model machine is offline.",
   tunnel_auth: "The tunnel refused the Worker's service token. Check OLLAMA_CLIENT_ID / OLLAMA_CLIENT_SECRET.",
-  not_configured: "The Worker isn't connected to Ollama yet (OLLAMA_URL or tunnel token missing).",
+  not_configured: "The Worker isn't connected to that machine yet (its URL or tunnel token is missing).",
   access_not_configured: "Access verification isn't configured on the Worker yet (ACCESS_TEAM_DOMAIN / ACCESS_AUD).",
   unauthenticated: "Your sign-in has expired.",
   too_large: "This conversation is too long to send. Start a new chat.",
@@ -225,7 +225,13 @@ const ERRORS = {
   rate_limited: "Too many requests from your connection. Wait a minute and try again.",
   rate_limit_not_configured: "The Worker is public but has no rate limit configured, so it's refusing requests.",
 };
-const explain = (e) => (e.error === "offline" && OFFLINE[e.backend]) || ERRORS[e.error] || (e.detail ? `Ollama: ${e.detail}` : `Request failed (${e.error || "unknown"}).`);
+const explain = (e) => {
+  if (e.error === "offline" && OFFLINE[e.backend]) return OFFLINE[e.backend];
+  if (e.error === "not_configured" && BACKEND_LABEL[e.backend]) {
+    return `The Worker isn't connected to ${BACKEND_LABEL[e.backend]} yet (its URL or tunnel token is missing).`;
+  }
+  return ERRORS[e.error] || (e.detail ? e.detail : `Request failed (${e.error || "unknown"}).`);
+};
 
 // ---------- API ----------
 async function api(path, init) {
