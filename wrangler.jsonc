@@ -32,7 +32,9 @@
     // lists, including embedding/TTS/image models that can't chat).
     "LOCALAI_MODELS": "llama-3.1-8b-instruct,deepseek-r1-distill-qwen-7b",
     // hailo-ollama on the Pi (Hailo-10H), port 11434. Same service token; empty disables it.
-    "HAILO_URL": "https://hailo-tunnel.melltron.build",
+    // Off on the public site since 2026-11-14 so the Pi's accelerator is free for Mell0Z's
+    // nightly runs. hailo-tunnel.melltron.build and its Access app are left in place.
+    "HAILO_URL": "",
     // Open to anyone, no Access login. Needs the rate limits below (fails closed without).
     "PUBLIC": "true",
     // Free chats per visitor (and per IP) before the owner has to approve them.
