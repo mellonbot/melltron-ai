@@ -10,16 +10,27 @@ const html = read("index.html");
 test("link preview names LocalAI and the Pi", () => {
   const desc = html.match(/name="description" content="([^"]*)"/)?.[1] || "";
   assert.match(desc, /LocalAI/);
-  assert.match(desc, /Hailo-10H/);
-  assert.doesNotMatch(desc, /Ollama/);
+  assert.match(desc, /Raspberry Pi/);
+  assert.match(desc, /Ollama/);
+  assert.doesNotMatch(html, /hailo/i);
 });
 
 test("visitor errors name the machine that failed", () => {
   const js = read("app.js");
   assert.match(js, /LocalAI isn't running/);
-  assert.match(js, /hailo-ollama isn't running/);
+  assert.match(js, /Ollama isn't running on it/);
+  assert.match(js, /Pi · Ollama/);
+  assert.doesNotMatch(js, /hailo/i);
   assert.doesNotMatch(js, /isn't connected to Ollama/);
   assert.doesNotMatch(js, /Ollama: /);
+});
+
+test("Hailo names are gone from the app, config, and docs", () => {
+  const files = ["../wrangler.jsonc", "../README.md", "../src/api.js", "../public/app.js", "../public/index.html", "../test/api.test.js"];
+  for (const f of files) {
+    const text = readFileSync(new URL(f, import.meta.url), "utf8");
+    assert.doesNotMatch(text, /hailo/i, f);
+  }
 });
 
 test("[hidden] wins over author display rules", () => {

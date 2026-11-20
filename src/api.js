@@ -6,8 +6,8 @@
 // OLLAMA_CLIENT_ID / OLLAMA_CLIENT_SECRET:
 //   desktop  env.OLLAMA_URL   Ollama on the office desktop (RTX 4060); empty = off
 //   localai  env.LOCALAI_URL  LocalAI on the office desktop (RTX 4060); empty = off
-//   hailo    env.HAILO_URL    hailo-ollama on the Pi's Hailo-10H AI HAT; empty = off
-// Desktop Ollama ids are the plain names; LocalAI ids are "rtx/<name>", Pi ids "hailo/<name>".
+//   pi       env.PI_URL       Ollama on the Pi (CPU); empty = off
+// Desktop Ollama ids are the plain names; LocalAI ids are "rtx/<name>", Pi ids "pi/<name>".
 // Ollama-style servers only ever see /api/tags (+ /api/show) and /api/chat; LocalAI
 // (OpenAI API) only /v1/models and /v1/chat/completions, translated to the same
 // shapes, so the UI sees one protocol and model management stays private.
@@ -63,7 +63,7 @@ const gated = (handler, limiter) => async (request, env, ctx, url) => {
 export const BACKENDS = {
   desktop: { urlVar: "OLLAMA_URL", prefix: "", show: true },
   localai: { urlVar: "LOCALAI_URL", prefix: "rtx/", show: false, openai: true },
-  hailo: { urlVar: "HAILO_URL", prefix: "hailo/", show: false }, // hailo-ollama has no capabilities in /api/show
+  pi: { urlVar: "PI_URL", prefix: "pi/", show: true },
 };
 
 // Maps a public model id to {backend, name}. Unprefixed ids belong to the desktop.
