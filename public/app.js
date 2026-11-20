@@ -1,4 +1,4 @@
-// AI lab — chat UI for LocalAI on the desktop GPU and hailo-ollama on the Pi.
+// AI lab — chat UI for LocalAI on the desktop GPU and Ollama on the Pi.
 // External script only (strict CSP). Model output is untrusted: everything is built
 // with DOM APIs and textContent, never innerHTML.
 
@@ -203,13 +203,13 @@ function showNotice(text, withReload) {
   els.notice.hidden = false;
 }
 
-const BACKEND_LABEL = { desktop: "Desktop · RTX 4060", localai: "Desktop · RTX 4060 · LocalAI", hailo: "Pi · Hailo-10H" };
+const BACKEND_LABEL = { desktop: "Desktop · RTX 4060", localai: "Desktop · RTX 4060 · LocalAI", pi: "Pi · Ollama" };
 // Must match BACKENDS[*].prefix in src/api.js.
-const PREFIX = { localai: "rtx/", hailo: "hailo/" };
+const PREFIX = { localai: "rtx/", pi: "pi/" };
 const OFFLINE = {
   desktop: "Desktop Ollama isn't running. The desktop GPU models are served by LocalAI.",
   localai: "The lab desktop is offline, or LocalAI isn't running on it.",
-  hailo: "The Pi is offline, or hailo-ollama isn't running on it.",
+  pi: "The Pi is offline, or Ollama isn't running on it.",
 };
 const ERRORS = {
   offline: "A model machine is offline.",
@@ -272,7 +272,7 @@ async function loadModels() {
       o.textContent = size ? `${label} · ${size}` : label;
       groups.get(k).append(o);
     }
-    for (const k of ["desktop", "localai", "hailo", ...groups.keys()]) if (groups.has(k)) { els.model.append(groups.get(k)); groups.delete(k); }
+    for (const k of ["desktop", "localai", "pi", ...groups.keys()]) if (groups.has(k)) { els.model.append(groups.get(k)); groups.delete(k); }
     if (!models.length) {
       els.model.append(new Option("No models installed"));
       setStatus("error", "No models");
@@ -386,10 +386,10 @@ const touch = matchMedia("(pointer: coarse)");
 function autosize() { els.input.style.height = "auto"; els.input.style.height = Math.min(els.input.scrollHeight, innerHeight * 0.4) + "px"; }
 
 // Some models put their reasoning inline as <think>…</think> instead of a separate
-// field. deepseek-r1 on hailo-ollama (and some GGUF chat templates on LocalAI) even
+// field. deepseek-r1 on the Pi (and some GGUF chat templates on LocalAI) even
 // drops the opening tag, so for those everything before </think> is reasoning.
 // Split while streaming.
-const inlineThinker = (model) => /^(hailo|rtx)\/.*(deepseek|r1)/i.test(model || "");
+const inlineThinker = (model) => /^(pi|rtx)\/.*(deepseek|r1)/i.test(model || "");
 function splitThink(reply, raw, open) {
   let t = raw.trimStart();
   if (t.startsWith("<think>")) { t = t.slice(7); open = true; }
@@ -471,7 +471,7 @@ async function send() {
     else {
       reply.error = err.message;
       if (err.reauth) showNotice(err.message, true);
-      if (err.code === "offline") { setStatus("offline", err.backend === "hailo" ? "Pi offline" : "Desktop offline"); }
+      if (err.code === "offline") { setStatus("offline", err.backend === "pi" ? "Pi offline" : "Desktop offline"); }
     }
   } finally {
     reply.streaming = false; // failed turns stay visible but are filtered out of history
