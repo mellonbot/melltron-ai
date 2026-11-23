@@ -1,16 +1,15 @@
 # AI — ai.melltron.build
 
-LAB-003. Chat with the lab's own models from any browser: LocalAI on the office desktop's RTX 4060, and Ollama on a Raspberry Pi 5 (CPU models such as `llama3.2:1b-instruct-q4_K_M`). Desktop Ollama stays retired (`OLLAMA_URL` empty). **Currently LocalAI (desktop) + Pi.** Built from [melltron-lab-template](https://github.com/mellonbot/melltron-lab-template); see that README for the general lab lifecycle.
+LAB-003. Chat with the two Ollama models on the office desktop's RTX 4060: `huihui_ai/qwen3.5-abliterated:9b` (Qwen 3.5 9B) and `deepseek-9b-uncensored` (DeepSeek 9B). Context is 4608, set on the desktop. LocalAI and the Pi backend are off. Built from [melltron-lab-template](https://github.com/mellonbot/melltron-lab-template); see that README for the general lab lifecycle.
 
 ## How it fits together
 
 ```
-browser ──▶ ai.melltron.build ──▶ Worker melltron-ai ─┬▶ localai-tunnel.melltron.build ──▶ cloudflared (desktop) ──▶ LocalAI 127.0.0.1:8090
-            [public, no login]      [per-IP rate limit] └▶ ollama-tunnel.melltron.build   ──▶ cloudflared (Pi)      ──▶ Ollama 127.0.0.1:11434
-                                                          [Access: service token only]
+browser ──▶ ai.melltron.build ──▶ Worker melltron-ai ──▶ localai-tunnel.melltron.build ──▶ cloudflared (desktop) ──▶ Ollama 127.0.0.1:11434
+            [public, no login]      [per-IP rate limit]                                    [Access: service token only]
 ```
 
-- **Two backends on, one slot spare.** Each is off when its URL var (`OLLAMA_URL`, `LOCALAI_URL`, `PI_URL`) is empty; an off backend is left out of `/api/models` and its models answer `not_configured`. Desktop Ollama models keep their names; LocalAI models are `rtx/<id>` and Pi models `pi/<name>`, and the Worker strips the prefix before forwarding. `/api/models` lists every configured backend and still answers when one is offline (`backends` says which). `OLLAMA_URL` is empty, so the live pair is LocalAI and the Pi.
+- **One backend on.** Each is off when its URL var (`OLLAMA_URL`, `LOCALAI_URL`, `PI_URL`) is empty; an off backend is left out of `/api/models`. Desktop Ollama models keep their names. `OLLAMA_MODELS` is the allowlist, so only the two RTX models are offered. LocalAI models would be `rtx/<id>` and Pi models `pi/<name>` if those URLs were set again.
 
 - **Public, with a prompt quota.** With `PUBLIC="true"` (the default in `wrangler.jsonc`) anyone can open the app, with no login (`src/quota.js`):
   - **Tailnet devices are unlimited.** Opening the pass page (`http://<pass host's Tailscale IP>:8787/`, see *Tailnet pass* below) on a tailnet device redirects back here with a signed 30-day pass that the browser keeps.
@@ -43,7 +42,7 @@ Errors are JSON `{error, backend?}`: `offline` (that machine or its server is do
 
 ## Configuration
 
-`wrangler.jsonc` → `vars`: `PUBLIC` (`"true"` = no login), `FREE_PROMPTS`, `ADMIN_ACCESS_AUD` (AUD of the owner-only Access app on `ai.melltron.build/admin` + `/api/admin`), `OLLAMA_URL`, `LOCALAI_URL`, `LOCALAI_MODELS`, `PI_URL` (empty URL disables that backend), `ACCESS_TEAM_DOMAIN` (e.g. `mellon.cloudflareaccess.com`), `ACCESS_AUD` (the `ai.melltron.build` Access application's AUD tag).
+`wrangler.jsonc` → `vars`: `PUBLIC` (`"true"` = no login), `FREE_PROMPTS`, `ADMIN_ACCESS_AUD` (AUD of the owner-only Access app on `ai.melltron.build/admin` + `/api/admin`), `OLLAMA_URL`, `OLLAMA_MODELS`, `LOCALAI_URL`, `LOCALAI_MODELS`, `PI_URL` (empty URL disables that backend), `ACCESS_TEAM_DOMAIN` (e.g. `mellon.cloudflareaccess.com`), `ACCESS_AUD` (the `ai.melltron.build` Access application's AUD tag).
 
 Secrets: `wrangler secret put OLLAMA_CLIENT_ID` and `OLLAMA_CLIENT_SECRET` (the Access service token, admitted by every tunnel), `LOCALAI_API_KEY` (optional, LocalAI's `API_KEY`), `PASS_SECRET` (signs tailnet passes; without it nobody gets a pass and everyone is on the free tier), and `ALERT_TO` (where access-request emails go).
 
@@ -62,11 +61,13 @@ systemctl --user enable --now tailnet-pass
 
 ### Desktop tunnel (cloudflared)
 
-Serves LocalAI only. Desktop Ollama was retired in Nov 2026, and `ollama-tunnel.melltron.build` now fronts Ollama on the Pi (`PI_URL`). **Keep `OLLAMA_URL` empty:** pointing it at `ollama-tunnel` would list the Pi's models a second time under the desktop label.
+`localai-tunnel.melltron.build` is the office tunnel (`mellonlab-office`). Its origin is Ollama at `http://localhost:11434` with HTTP Host Header `localhost:11434` (Ollama rejects any other Host). `OLLAMA_URL` points here. `OLLAMA_MODELS` must stay in step with the two model names from `ollama list`. Do not point `OLLAMA_URL` at `ollama-tunnel.melltron.build`: that name fronts the Pi.
 
-Both tunnels are remotely managed (ingress lives in the dashboard / API, not a local config.yml). On the desktop, cloudflared runs as a user process (`~/.local/bin/cloudflared tunnel run --token-file ~/.config/cloudflared/tunnel-token`), not the `cloudflared` system service.
+Both tunnels are remotely managed (ingress lives in the dashboard / API, not a local config.yml). On the desktop, cloudflared runs as a user process (`~/.local/bin/cloudflared tunnel run --token-file ~/.config/cloudflared/tunnel-token`), not the `cloudflared` system service. Ollama is the user unit `ollama.service`, context 4608.
 
 #### LocalAI on the RTX 4060
+
+Not used by the site. The container can still be running on `127.0.0.1:8090`. The tunnel no longer reaches it.
 
 LocalAI runs in Docker on the desktop, bound to loopback; the tunnel is the only way in. Needs the NVIDIA Container Toolkit (`nvidia-ctk runtime configure --runtime=docker`).
 
@@ -78,15 +79,15 @@ docker run -d --name localai --restart unless-stopped --gpus all -p 127.0.0.1:80
 ```
 
 1. v4 images ship without inference backends: install `llama-cpp` once (`POST /backends/apply`, resolves to `cuda12-llama-cpp`). Keep `/backends` on a named volume or it's lost when the container is recreated.
-2. Models (current): `llama-3.1-8b-instruct` (Meta-Llama-3.1-8B-Instruct Q4_K_M) and `deepseek-r1-distill-qwen-7b` (Q4_K_M), GGUFs downloaded directly into `~/localai/models` (the gallery pulled Q8_0, which doesn't leave room for KV cache in 8 GB). Each YAML: `backend: llama-cpp`, `gpu_layers: 99`, `f16: true`, `context_size: 8192`, `use_tokenizer_template: true`. One model resident at a time (~5–6.5 GB VRAM); the first message after a switch takes ~10–20 s. R1 reasoning arrives as `delta.reasoning` and shows in the Reasoning panel.
+2. The old chat models were `llama-3.1-8b-instruct` and `deepseek-r1-distill-qwen-7b`. The site no longer offers them.
 3. `~/localai/api_key` (mode 600) is LocalAI's `API_KEY`; the same value is the Worker secret `LOCALAI_API_KEY`. Without the header LocalAI answers 401.
-3. Re-enable tunnel `mellonlab-office` and add public hostname `localai-tunnel.melltron.build` → `HTTP` `localhost:8090`.
+3. The office tunnel hostname `localai-tunnel.melltron.build` goes to `HTTP` `localhost:11434`, Host header `localhost:11434`.
 4. Add an Access application for `localai-tunnel.melltron.build` with the single **Service Auth** policy (same service token as the other tunnels).
 5. Keep `LOCALAI_MODELS` in `wrangler.jsonc` in step with the chat model ids in `/v1/models`.
 
 ### Pi tunnel (cloudflared, Ollama on CPU)
 
-cloudflared runs on the Pi as a system service. Ollama listens on `127.0.0.1:11434`. `PI_URL` is `https://ollama-tunnel.melltron.build`, so the picker lists those models as `pi/<name>` (the Worker strips the prefix before forwarding). It calls `/api/tags`, `/api/show`, and `/api/chat`. There is no Pi model allowlist: `/api/tags` is what gets offered, up to 25 names. A quant tag such as `llama3.2:1b-instruct-q4_K_M` is a valid id.
+Off (`PI_URL` empty). cloudflared still runs on the Pi as a system service, and Ollama still listens on `127.0.0.1:11434`. Setting `PI_URL` to `https://ollama-tunnel.melltron.build` lists those models as `pi/<name>` (the Worker strips the prefix before forwarding). It calls `/api/tags`, `/api/show`, and `/api/chat`. There is no Pi model allowlist: `/api/tags` is what gets offered, up to 25 names. A quant tag such as `llama3.2:1b-instruct-q4_K_M` is a valid id.
 
 - `ollama-tunnel.melltron.build` → `HTTP` `localhost:11434`
 - **HTTP Host Header: `localhost:11434`.** Ollama rejects non-local Host headers (empty 403). The origin is `localhost` because cloudflared runs on the Pi.

@@ -7,11 +7,11 @@ const read = (f) => readFileSync(new URL(`../public/${f}`, import.meta.url), "ut
 const css = read("app.css");
 const html = read("index.html");
 
-test("link preview names LocalAI and the Pi", () => {
+test("link preview names the desktop GPU", () => {
   const desc = html.match(/name="description" content="([^"]*)"/)?.[1] || "";
-  assert.match(desc, /LocalAI/);
-  assert.match(desc, /Raspberry Pi/);
-  assert.match(desc, /Ollama/);
+  assert.match(desc, /RTX 4060/);
+  assert.match(html, /RTX 4060/);
+  assert.doesNotMatch(desc, /Raspberry Pi/);
   assert.doesNotMatch(html, /hailo/i);
 });
 

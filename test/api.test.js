@@ -123,6 +123,15 @@ test("/api/models lists models, sorted, with thinking capability, using the serv
   }
 });
 
+test("OLLAMA_MODELS limits the desktop list and refuses anything else", async () => {
+  const e = { ...env, OLLAMA_MODELS: "llama3.1:8b" };
+  const res = await req("/api/models", { e });
+  assert.deepEqual((await res.json()).models.map((m) => m.name), ["llama3.1:8b"]);
+  const chat = await req("/api/chat", { method: "POST", body: { ...chatBody, model: "deepseek-r1:8b" }, e });
+  assert.equal(chat.status, 400);
+  assert.equal(calls.some((c) => c.path === "/api/chat"), false);
+});
+
 // ---------- chat ----------
 test("/api/chat streams NDJSON through and only forwards clean fields", async () => {
   const res = await req("/api/chat", { method: "POST", body: { ...chatBody, messages: [{ role: "user", content: "hi", extra: "x", images: ["…"] }], think: true, options: { num_ctx: 999999 }, keep_alive: -1 } });

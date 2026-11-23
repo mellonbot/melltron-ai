@@ -127,12 +127,14 @@ async function call(env, backend, path, init) {
   }
 }
 
-// LOCALAI_MODELS: optional comma-separated allowlist. LocalAI's /v1/models also
-// lists embedding, TTS and image models, which can't chat.
-const localaiAllowed = (env) => {
-  const list = (env.LOCALAI_MODELS || "").split(",").map((s) => s.trim()).filter(Boolean);
+// Optional comma-separated allowlist. Empty means every model the backend lists.
+// LocalAI's /v1/models also lists embedding, TTS and image models, which can't chat.
+const allowedSet = (env, key) => {
+  const list = (env[key] || "").split(",").map((s) => s.trim()).filter(Boolean);
   return list.length ? new Set(list) : null;
 };
+const localaiAllowed = (env) => allowedSet(env, "LOCALAI_MODELS");
+const ollamaAllowed = (env) => allowedSet(env, "OLLAMA_MODELS");
 
 async function listOpenAI(env, backend) {
   const b = BACKENDS[backend];
@@ -155,7 +157,10 @@ async function listBackend(env, backend) {
   if (b.openai) return listOpenAI(env, backend);
   const tags = await call(env, backend, "/api/tags", { method: "GET" });
   if (!tags?.ok) return { failure: await upstreamFailure(tags, backend) };
-  const list = ((await tags.json()).models ?? []).slice(0, LIMITS.models);
+  const allow = backend === "desktop" ? ollamaAllowed(env) : null;
+  const list = ((await tags.json()).models ?? [])
+    .filter((m) => !allow || allow.has(m.name))
+    .slice(0, LIMITS.models);
   const models = await Promise.all(
     list.map(async (m) => {
       let capabilities = [];
@@ -247,10 +252,8 @@ async function chat(request, env) {
   }
 
   const b = BACKENDS[backend];
-  if (b.openai) {
-    const allow = localaiAllowed(env);
-    if (allow && !allow.has(name)) return json({ error: "bad_request", detail: "invalid model" }, { status: 400 });
-  }
+  const allow = b.openai ? localaiAllowed(env) : (backend === "desktop" ? ollamaAllowed(env) : null);
+  if (allow && !allow.has(name)) return json({ error: "bad_request", detail: "invalid model" }, { status: 400 });
   const payload = { model: name, messages, stream: true };
   if (v.think && b.show) payload.think = true;
   const res = await call(env, backend, b.openai ? "/v1/chat/completions" : "/api/chat", { method: "POST", body: JSON.stringify(payload), signal: request.signal });

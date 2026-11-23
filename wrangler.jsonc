@@ -22,18 +22,16 @@
   // Non-secret config. Secrets (wrangler secret put): OLLAMA_CLIENT_ID, OLLAMA_CLIENT_SECRET, LOCALAI_API_KEY (optional, LocalAI API_KEY), PASS_SECRET (signs tailnet passes), ALERT_TO (owner's email for access-request alerts)
   // (the Access service token admitted by the LocalAI and Pi tunnels). Empty values fail closed.
   "vars": {
-    // Ollama on the office desktop: retired. Keep empty. ollama-tunnel.melltron.build now
-    // routes to Ollama on the Pi, so setting it here would duplicate the Pi models.
-    "OLLAMA_URL": "",
-    // LocalAI on the office desktop (RTX 4060), 127.0.0.1:8090, via tunnel mellonlab-office.
-    // Same service token; empty disables it. Models appear as "rtx/<id>".
-    "LOCALAI_URL": "https://localai-tunnel.melltron.build",
-    // Optional comma-separated LocalAI model ids to offer (empty = everything /v1/models
-    // lists, including embedding/TTS/image models that can't chat).
-    "LOCALAI_MODELS": "llama-3.1-8b-instruct,deepseek-r1-distill-qwen-7b",
-    // Ollama on the Pi (CPU), 127.0.0.1:11434, via ollama-tunnel. Same service token;
-    // empty disables it. Models appear as "pi/<name>". Leave OLLAMA_URL empty.
-    "PI_URL": "https://ollama-tunnel.melltron.build",
+    // Ollama on the office desktop (RTX 4060), 127.0.0.1:11434. The hostname
+    // localai-tunnel is the office tunnel; its origin is Ollama, not LocalAI.
+    "OLLAMA_URL": "https://localai-tunnel.melltron.build",
+    // Only these two. Empty would offer every model Ollama has installed.
+    "OLLAMA_MODELS": "huihui_ai/qwen3.5-abliterated:9b,deepseek-9b-uncensored:latest",
+    // LocalAI on the office desktop. Empty: the site does not use it.
+    "LOCALAI_URL": "",
+    "LOCALAI_MODELS": "",
+    // Ollama on the Pi. Empty: the site does not use it.
+    "PI_URL": "",
     // Open to anyone, no Access login. Needs the rate limits below (fails closed without).
     "PUBLIC": "true",
     // Free chats per visitor (and per IP) before the owner has to approve them.

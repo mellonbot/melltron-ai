@@ -1,4 +1,4 @@
-// AI lab — chat UI for LocalAI on the desktop GPU and Ollama on the Pi.
+// AI lab — chat UI for the two Ollama models on the desktop RTX 4060.
 // External script only (strict CSP). Model output is untrusted: everything is built
 // with DOM APIs and textContent, never innerHTML.
 
@@ -204,10 +204,14 @@ function showNotice(text, withReload) {
 }
 
 const BACKEND_LABEL = { desktop: "Desktop · RTX 4060", localai: "Desktop · RTX 4060 · LocalAI", pi: "Pi · Ollama" };
+const MODEL_LABEL = {
+  "huihui_ai/qwen3.5-abliterated:9b": "Qwen 3.5 9B",
+  "deepseek-9b-uncensored:latest": "DeepSeek 9B",
+};
 // Must match BACKENDS[*].prefix in src/api.js.
 const PREFIX = { localai: "rtx/", pi: "pi/" };
 const OFFLINE = {
-  desktop: "Desktop Ollama isn't running. The desktop GPU models are served by LocalAI.",
+  desktop: "The lab desktop is offline, or Ollama isn't running on it.",
   localai: "The lab desktop is offline, or LocalAI isn't running on it.",
   pi: "The Pi is offline, or Ollama isn't running on it.",
 };
@@ -266,7 +270,7 @@ async function loadModels() {
       const o = document.createElement("option");
       o.value = m.name;
       const p = PREFIX[k] || "";
-      const label = p && m.name.startsWith(p) ? m.name.slice(p.length) : m.name;
+      const label = MODEL_LABEL[m.name] || (p && m.name.startsWith(p) ? m.name.slice(p.length) : m.name);
       // "qwen2.5-coder:1.5b · 1.5B" says the size twice and gets cut off on phones.
       const size = m.parameters && !label.toLowerCase().endsWith(":" + m.parameters.toLowerCase()) ? m.parameters : "";
       o.textContent = size ? `${label} · ${size}` : label;
