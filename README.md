@@ -37,6 +37,7 @@ browser ──▶ ai.melltron.build ──▶ Worker melltron-ai ──▶ local
 | `GET /api/admin/visitors` | admin Access | visitors, pending first |
 | `POST /api/admin/visitors` | admin Access | `{id, action: approve\|deny\|reset}` |
 | `POST /api/chat` | gate + quota + 10/min | `{model, messages, think?}` → Ollama NDJSON stream (LocalAI translated) |
+| `POST /api/repo-qa` | separate trusted-user Access + 10/min | `{repository, question}` → `{answer, sources, coverage}`; read-only repository Q&A |
 
 Errors are JSON `{error, backend?}`: `offline` (that machine or its server is down), `tunnel_auth` (service token refused), `not_configured`, `access_not_configured`, `unauthenticated`, `quota_exhausted` / `denied` (403, with `quota`), `visitor_required`, `quota_not_configured`, `rate_limited` (429), `rate_limit_not_configured`, `upstream` (+`detail`). "gate" is nothing when public, the Access JWT otherwise. Public calls send `x-ai-visitor` (and `x-ai-pass` on tailnet browsers).
 
@@ -45,6 +46,18 @@ Errors are JSON `{error, backend?}`: `offline` (that machine or its server is do
 `wrangler.jsonc` → `vars`: `PUBLIC` (`"true"` = no login), `FREE_PROMPTS`, `ADMIN_ACCESS_AUD` (AUD of the owner-only Access app on `ai.melltron.build/admin` + `/api/admin`), `OLLAMA_URL`, `OLLAMA_MODELS`, `LOCALAI_URL`, `LOCALAI_MODELS`, `PI_URL` (empty URL disables that backend), `ACCESS_TEAM_DOMAIN` (e.g. `mellon.cloudflareaccess.com`), `ACCESS_AUD` (the `ai.melltron.build` Access application's AUD tag).
 
 Secrets: `wrangler secret put OLLAMA_CLIENT_ID` and `OLLAMA_CLIENT_SECRET` (the Access service token, admitted by every tunnel), `LOCALAI_API_KEY` (optional, LocalAI's `API_KEY`), `PASS_SECRET` (signs tailnet passes; without it nobody gets a pass and everyone is on the free tier), and `ALERT_TO` (where access-request emails go).
+
+### Protected repository Q&A
+
+This separate API remains closed even when public chat is enabled. Set `ACCESS_TEAM_DOMAIN` to the Access team and configure either or both exact trusted-user audiences: `REPO_QA_ACCESS_AUD` for the direct Q&A Access application and `MELLONPANEL_ACCESS_AUD` for the separate Mellonpanel Access application. They must be distinct from the existing public-chat and admin audiences; a conflict fails closed. Neither audience is preconfigured here. The Worker verifies each signed assertion's signature, issuer, expiration and exact audience itself, including on preview URLs, and requires a human login (nonempty `email` and `sub`, no service-token `common_name`). It also requires `CHAT_LIMIT`, keyed per verified email because all Mellonpanel calls share the panel host's IP. Visitor approvals and caller-supplied system messages do not authorize repository access. Restrict both Access applications to trusted human users; do not allow service tokens or untrusted users.
+
+Set `REPO_QA_GITHUB_TOKEN` as a Worker secret using a fine-grained GitHub token with **Contents: read-only**, restricted to `mellonbot/mellonbot-status` and `mellonbot/melltron-ai`; give it no write permissions. Set `REPO_QA_MODEL` to one of the desktop models in the nonempty `OLLAMA_MODELS` allowlist. No configuration or secrets are provisioned by this change. Without these settings the API fails closed.
+
+Send a same-origin `POST /api/repo-qa` with JSON such as `{"repository":"mellonbot/melltron-ai","question":"How is access verified?"}`. Only the two named repositories are accepted. GitHub code search searches up to three question keywords on the default branch; it reads at most eight matching text files and sends at most six short excerpts to the configured desktop Ollama tunnel. Questions must be at most 1,000 characters, and model output is bounded. GitHub indexing, search-result and excerpt limits mean this is **not exhaustive**; an empty result does not prove a fact is absent. `sources` includes paths, blob hashes, line numbers, excerpts and links; links follow the default branch and may change after the request. Answers and citation relevance are model-generated, so verify them against the sources. The API asks the model to distinguish evidence from inference and rejects missing or unknown source labels, but cannot guarantee factual accuracy.
+
+GitHub receives the question's search keywords; selected excerpts and the question go to local Ollama through the existing Cloudflare tunnel. No repository content is stored by this feature. Public chat still accepts caller-supplied system messages as conversation input, not authorization policy.
+
+Mellonpanel is not wired by this change. Its HTTPS entry point must be protected by the configured Mellonpanel Access application, and its server-side proxy must forward the caller's `CF-Access-Jwt-Assertion` to the gateway unchanged, not use a shared service identity or trust a client-supplied identity. The proxy must not forward the browser's cross-origin `Origin` header; browser cross-origin calls remain rejected and no CORS access is granted. Route the gateway request so that the Worker receives the original assertion: any gateway-side Access application in front of this path must not reject or replace the Mellonpanel assertion before Worker verification. The hostname, routing, and Access policies must be explicitly configured and tested in production; this change does not provision them.
 
 ### Tailnet pass
 
