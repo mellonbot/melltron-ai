@@ -7,12 +7,30 @@ const read = (f) => readFileSync(new URL(`../public/${f}`, import.meta.url), "ut
 const css = read("app.css");
 const html = read("index.html");
 
-test("link preview names the desktop GPU", () => {
+test("link preview names the desktop Ollama models", () => {
   const desc = html.match(/name="description" content="([^"]*)"/)?.[1] || "";
-  assert.match(desc, /RTX 4060/);
+  assert.match(desc, /desktop Ollama models on the RTX 4060/);
+  assert.match(html, /desktop Ollama/);
   assert.match(html, /RTX 4060/);
-  assert.doesNotMatch(desc, /Raspberry Pi/);
+  assert.doesNotMatch(desc, /Raspberry Pi|LocalAI|Hailo/i);
   assert.doesNotMatch(html, /hailo/i);
+});
+
+test("public page has hub-style canonical, Open Graph, and Twitter tags", () => {
+  assert.match(html, /<link rel="canonical" href="https:\/\/ai\.melltron\.build\/">/);
+  assert.match(html, /<meta property="og:title" content="AI · melltron\.build lab">/);
+  assert.match(html, /<meta property="og:description" content="AI — chat with the desktop Ollama models on the RTX 4060\.">/);
+  assert.match(html, /<meta property="og:url" content="https:\/\/ai\.melltron\.build\/">/);
+  assert.match(html, /<meta property="og:type" content="website">/);
+  assert.match(html, /<meta name="twitter:card" content="summary">/);
+  assert.match(html, /<meta name="twitter:title" content="AI · melltron\.build lab">/);
+  assert.match(html, /<meta name="twitter:description" content="AI — chat with the desktop Ollama models on the RTX 4060\.">/);
+  assert.doesNotMatch(html, /<script(?![^>]*\ssrc=)|<style[\s>]|\son[a-z]+=/i);
+});
+
+test("the lab index link is visible on the chat page", () => {
+  assert.match(html, /<a class="crumb" href="https:\/\/melltron\.build\/lab\/">melltron\.build \/ lab<\/a>/);
+  assert.doesNotMatch(css, /\.crumb[^{]*\{[^}]*display:\s*none/);
 });
 
 test("visitor errors name the machine that failed", () => {
