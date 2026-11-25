@@ -44,7 +44,9 @@
     "ACCESS_AUD": "ed4b66ee811bef7c3c9e7d1960a2a4ecda65a1e98836b8bf6ab6a62bdbdd6f7d",
     // Repository Q&A (src/repo-qa.js). Desktop model only; secret REPO_QA_GITHUB_TOKEN
     // is a fine-grained, Contents read-only token for mellonbot-status and melltron-ai.
-    "REPO_QA_MODEL": "huihui_ai/qwen3.5-abliterated:9b"
+    "REPO_QA_MODEL": "huihui_ai/qwen3.5-abliterated:9b",
+    // AUD of the "Mellonpanel (melltron.cloud)" Access app (owner only). Accepted only on /api/repo-qa.
+    "MELLONPANEL_ACCESS_AUD": "748f0a6c982f8698b4da71884673fbadc2d288af83f302eecdea7ce02d5ecb9d"
   },
   // Emails the owner about access requests (src/alert.js). Recipient: ALERT_TO secret.
   "send_email": [{ "name": "ALERT_EMAIL" }],
