@@ -419,7 +419,7 @@ const limiter = (limit) => {
   const seen = new Map();
   return { keys: seen, async limit({ key }) { const n = (seen.get(key) ?? 0) + 1; seen.set(key, n); return { success: n <= limit }; } };
 };
-const publicEnv = (over = {}) => ({ ...env, PUBLIC: "true", ACCESS_AUD: "", CHAT_LIMIT: limiter(2), MODELS_LIMIT: limiter(5), DB: fakeD1(), ...over });
+const publicEnv = (over = {}) => ({ ...env, PUBLIC: "true", CHAT_ACCESS: "public", ACCESS_AUD: "", CHAT_LIMIT: limiter(2), MODELS_LIMIT: limiter(5), DB: fakeD1(), ...over });
 const anon = (path, e, { method = "GET", body, ip = "203.0.113.7", visitor = "visitor-0000000000000001" } = {}) =>
   worker.fetch(new Request(`https://ai.melltron.build${path}`, { method, headers: { "content-type": "application/json", "cf-connecting-ip": ip, "x-ai-visitor": visitor }, body: body && JSON.stringify(body) }), e, {});
 

@@ -6,18 +6,23 @@ LAB-003. Chat with the two Ollama models on the office desktop's RTX 4060: `huih
 
 ```
 browser ──▶ ai.melltron.build ──▶ Worker melltron-ai ──▶ localai-tunnel.melltron.build ──▶ cloudflared (desktop) ──▶ Ollama 127.0.0.1:11434
-            [public, no login]      [per-IP rate limit]                                    [Access: service token only]
+            [no login]              [tailnet pass required]                                [Access: service token only]
 ```
 
 - **One backend on.** Each is off when its URL var (`OLLAMA_URL`, `LOCALAI_URL`, `PI_URL`) is empty; an off backend is left out of `/api/models`. Desktop Ollama models keep their names. `OLLAMA_MODELS` is the allowlist, so only the two RTX models are offered. LocalAI models would be `rtx/<id>` and Pi models `pi/<name>` if those URLs were set again.
 
-- **Public, with a prompt quota.** With `PUBLIC="true"` (the default in `wrangler.jsonc`) anyone can open the app, with no login (`src/quota.js`):
+- **Tailnet-only, for now.** With `PUBLIC="true"` the page itself stays open, with no login. `CHAT_ACCESS="tailnet"` (the default in `wrangler.jsonc`) is what decides who can use the models. The Worker never sees a Tailscale address — browsers still arrive through Cloudflare — so the check is the existing signed pass (`x-ai-pass`, minted by `tools/tailnet-pass.py` after `tailscale whois`; see *Tailnet pass* below). A valid pass can list models and chat, unlimited, and is not written to D1. Everyone else gets **zero free prompts**: `GET /api/models` and `POST /api/chat` return `403` `{error: "tailnet_only"}` before the rate limit or the GPU, and `GET /api/quota` returns `{tier: "closed", limit: 0, remaining: 0}` with a short explanation. The page shows that message and hides the access-request form. Any `CHAT_ACCESS` value other than `public` stays tailnet-only. The flag does nothing when `PUBLIC` is not `"true"`.
+  - **A copied pass works off the tailnet until it expires** (30 days). That is the same trust the pass already had: whoever holds the token is unlimited. There is no second tailnet check to add on the Worker.
+  - **Access requests are off in this mode.** `POST /api/access-request` returns the same 403 and does not write a row or email the owner. An approval would let that browser chat from anywhere, which is the opening this mode closes. **`/admin` still works** (owner-only Access): old requests stay listed, and approve / deny / reset still save. Those decisions do nothing to the models until `CHAT_ACCESS` is `public` again. The admin page says so. Nothing is deleted, so flipping the flag back does not need a migration.
+  - **To reopen public chat,** set `CHAT_ACCESS` to `public` and deploy. No Cloudflare setting changes.
+
+- **Public quota, when reopened.** With `PUBLIC="true"` and `CHAT_ACCESS="public"` (`src/quota.js`):
   - **Tailnet devices are unlimited.** Opening the pass page (`http://<pass host's Tailscale IP>:8787/`, see *Tailnet pass* below) on a tailnet device redirects back here with a signed 30-day pass that the browser keeps.
   - **Everyone else gets `FREE_PROMPTS` (10) chats**, counted per browser (a random id kept in `localStorage`) and per IP, so clearing the browser doesn't reset them. Only chats the model started answering count.
   - **Then they ask the owner.** The page shows a name + note form; requests land on **`/admin`** (owner-only Access app), where the owner can approve (unlimited), deny, or reset (back to 10 free).
   - **The owner gets an email** for each new request (`src/alert.js`): `ALERT_EMAIL` send_email binding, from `ALERT_FROM` (`ai@melltron.build`, an Email Sending domain) to the `ALERT_TO` secret (a verified destination address on the account). At most `ALERT_MAX_PER_HOUR` (10) alerts an hour; editing a pending request doesn't re-send. Without the binding or secret, requests still work, just silently.
-  - Counts and requests live in D1 (`DB`, database `melltron-ai`); tables are created on first use. Public mode fails closed (503) without `DB` or the rate-limit bindings.
-  - `CHAT_LIMIT` / `MODELS_LIMIT` (10 and 30 a minute per IP) are an extra brake. Cloudflare's rate limiter is approximate and didn't block a test burst in practice; the quota is what holds.
+  - Counts and requests live in D1 (`DB`, database `melltron-ai`); tables are created on first use. This policy fails closed (503) without `DB`. Tailnet-only mode does not need `DB` for a valid pass. Either way, public mode fails closed (503) without the rate-limit bindings.
+  - `CHAT_LIMIT` / `MODELS_LIMIT` (10 and 30 a minute per IP) are an extra brake on callers who are allowed through. Strangers in tailnet-only mode are refused before the limiter. Cloudflare's rate limiter is approximate and didn't block a test burst in practice; the quota is what holds when the public policy is on.
 - **The tunnels stay private.** `localai-tunnel` and `ollama-tunnel.melltron.build` admit only the service token stored as Worker secrets, so no browser can reach LocalAI or the Pi's Ollama directly, and pull/delete stay unreachable.
 - **Private mode.** Set `PUBLIC` to `""`, put an Access app in front of `ai.melltron.build`, and the Worker re-verifies the Access JWT on every `/api/*` call (`src/access.js`). That check matters because Workers preview URLs bypass the custom-domain Access app. It fails closed (503) until `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD` are set.
 - **LocalAI speaks the OpenAI API; the browser never sees it.** The Worker calls only `GET /v1/models` and `POST /v1/chat/completions` (`stream: true`) and translates the SSE stream to Ollama's NDJSON (`sseToNdjson` in `src/api.js`): `delta.content` → `message.content`, `delta.reasoning_content`/`reasoning` → `message.thinking`, `[DONE]` → `{done: true}`. `LOCALAI_MODELS` (comma-separated ids) limits what's offered, since `/v1/models` also lists embedding/TTS/image models; chats to other ids are refused (400) before reaching the desktop. Optional `LOCALAI_API_KEY` secret is sent as `Authorization: Bearer` (matches LocalAI's `API_KEY`), a second lock behind the tunnel's service token.
@@ -31,21 +36,21 @@ browser ──▶ ai.melltron.build ──▶ Worker melltron-ai ──▶ local
 |---|---|---|
 | `GET /_health`, `GET /api/ping` | public | version / liveness |
 | `GET /api/me` | gate | `{email, public}` (email is null when public) |
-| `GET /api/models` | gate + 30/min | `{models: [{name, backend, parameters, thinking, …}], backends: {desktop?, localai?, pi?}}` (configured backends only) |
-| `GET /api/quota` | gate | `{tier, used, limit, remaining, requested, device, passInvalid}`; tier is `tailnet`, `approved`, `free`, `exhausted`, `pending`, `denied` or `private` |
-| `POST /api/access-request` | gate | `{name, note?}` → asks the owner for more prompts |
+| `GET /api/models` | gate + tailnet pass (unless `CHAT_ACCESS=public`) + 30/min | `{models: [{name, backend, parameters, thinking, …}], backends: {desktop?, localai?, pi?}}` (configured backends only) |
+| `GET /api/quota` | gate | `{tier, used, limit, remaining, requested, device, passInvalid, message?}`; tier is `tailnet`, `closed`, `approved`, `free`, `exhausted`, `pending`, `denied` or `private`. `closed` means tailnet-only and this browser has no valid pass (`limit` and `remaining` are 0) |
+| `POST /api/access-request` | gate | `{name, note?}` → asks the owner for more prompts. `403 tailnet_only` while `CHAT_ACCESS` is not `public`; nothing is stored or emailed |
 | `GET /api/admin/visitors` | admin Access | visitors, pending first |
 | `POST /api/admin/visitors` | admin Access | `{id, action: approve\|deny\|reset}` |
-| `POST /api/chat` | gate + quota + 10/min | `{model, messages, think?}` → Ollama NDJSON stream (LocalAI translated) |
+| `POST /api/chat` | gate + tailnet pass or quota + 10/min | `{model, messages, think?}` → Ollama NDJSON stream (LocalAI translated). While `CHAT_ACCESS` is tailnet, a valid pass is required and the free quota is not consulted |
 | `POST /api/repo-qa` | separate trusted-user Access + 10/min | `{repository, question}` → `{answer, sources, coverage}`; read-only repository Q&A |
 
-Errors are JSON `{error, backend?}`: `offline` (that machine or its server is down), `tunnel_auth` (service token refused), `not_configured`, `access_not_configured`, `unauthenticated`, `quota_exhausted` / `denied` (403, with `quota`), `visitor_required`, `quota_not_configured`, `rate_limited` (429), `rate_limit_not_configured`, `upstream` (+`detail`). "gate" is nothing when public, the Access JWT otherwise. Public calls send `x-ai-visitor` (and `x-ai-pass` on tailnet browsers).
+Errors are JSON `{error, backend?, message?}`: `offline` (that machine or its server is down), `tunnel_auth` (service token refused), `not_configured`, `access_not_configured`, `unauthenticated`, `tailnet_only` (403, with `message` and `quota`), `quota_exhausted` / `denied` (403, with `quota`), `visitor_required`, `quota_not_configured`, `rate_limited` (429), `rate_limit_not_configured`, `upstream` (+`detail`). "gate" is nothing when public, the Access JWT otherwise. Public calls send `x-ai-visitor` (and `x-ai-pass` when the browser has a tailnet pass).
 
 ## Configuration
 
-`wrangler.jsonc` → `vars`: `PUBLIC` (`"true"` = no login), `FREE_PROMPTS`, `ADMIN_ACCESS_AUD` (AUD of the owner-only Access app on `ai.melltron.build/admin` + `/api/admin`), `OLLAMA_URL`, `OLLAMA_MODELS`, `LOCALAI_URL`, `LOCALAI_MODELS`, `PI_URL` (empty URL disables that backend), `ACCESS_TEAM_DOMAIN` (e.g. `mellon.cloudflareaccess.com`), `ACCESS_AUD` (the `ai.melltron.build` Access application's AUD tag).
+`wrangler.jsonc` → `vars`: `PUBLIC` (`"true"` = no login), `CHAT_ACCESS` (`"tailnet"` = models and chat need a tailnet pass, the default; `"public"` = free prompts and access requests), `FREE_PROMPTS` (used only when `CHAT_ACCESS` is `public`), `ADMIN_ACCESS_AUD` (AUD of the owner-only Access app on `ai.melltron.build/admin` + `/api/admin`), `OLLAMA_URL`, `OLLAMA_MODELS`, `LOCALAI_URL`, `LOCALAI_MODELS`, `PI_URL` (empty URL disables that backend), `ACCESS_TEAM_DOMAIN` (e.g. `mellon.cloudflareaccess.com`), `ACCESS_AUD` (the `ai.melltron.build` Access application's AUD tag).
 
-Secrets: `wrangler secret put OLLAMA_CLIENT_ID` and `OLLAMA_CLIENT_SECRET` (the Access service token, admitted by every tunnel), `LOCALAI_API_KEY` (optional, LocalAI's `API_KEY`), `PASS_SECRET` (signs tailnet passes; without it nobody gets a pass and everyone is on the free tier), and `ALERT_TO` (where access-request emails go).
+Secrets: `wrangler secret put OLLAMA_CLIENT_ID` and `OLLAMA_CLIENT_SECRET` (the Access service token, admitted by every tunnel), `LOCALAI_API_KEY` (optional, LocalAI's `API_KEY`), `PASS_SECRET` (signs tailnet passes; without it nobody gets a pass — while `CHAT_ACCESS` is `tailnet` that means nobody can list models or chat, and while it is `public` everyone stays on the free tier), and `ALERT_TO` (where access-request emails go, only when that policy is on).
 
 ### Protected repository Q&A
 
@@ -61,7 +66,7 @@ Mellonpanel is not wired by this change. Its HTTPS entry point must be protected
 
 ### Tailnet pass
 
-`tools/tailnet-pass.py` (standard-library Python, needs the `tailscale` CLI) runs on any always-on machine in the tailnet and listens only on that machine's Tailscale address (port 8787), so only tailnet devices can reach it. It checks the caller with `tailscale whois`, then redirects to `https://ai.melltron.build/#pass=<token>`. Set `PASS_USERS=login1,login2` to limit passes to some tailnet users (by default anyone on the tailnet gets one, including users who shared a device in).
+`tools/tailnet-pass.py` (standard-library Python, needs the `tailscale` CLI) runs on any always-on machine in the tailnet and listens only on that machine's Tailscale address (port 8787), so only tailnet devices can reach it. It checks the caller with `tailscale whois`, then redirects to `https://ai.melltron.build/#pass=<token>`. While `CHAT_ACCESS` is `tailnet`, that token is what `GET /api/models` and `POST /api/chat` require. Set `PASS_USERS=login1,login2` to limit passes to some tailnet users (by default anyone on the tailnet gets one, including users who shared a device in).
 
 ```sh
 install -Dm755 tools/tailnet-pass.py ~/.local/bin/tailnet-pass

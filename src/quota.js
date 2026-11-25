@@ -3,10 +3,14 @@
 //   tailnet   a valid tailnet pass (x-ai-pass) → unlimited. Passes are minted by
 //             tools/tailnet-pass.py, which only listens on a Tailscale address, and
 //             signed with PASS_SECRET (HMAC-SHA256).
-//   approved  the owner approved this visitor on /admin → unlimited.
-//   free      everyone else gets FREE_PROMPTS (default 10) chats. Counted per
-//             visitor id (x-ai-visitor, random, kept in the browser) AND per IP, so
-//             clearing the browser doesn't reset it. Then they can ask for access.
+//   approved  the owner approved this visitor on /admin → unlimited, once
+//             CHAT_ACCESS is "public". Ignored while chat is tailnet-only.
+//   free      everyone else gets FREE_PROMPTS (default 10) chats, when CHAT_ACCESS
+//             is "public". Counted per visitor id (x-ai-visitor, random, kept in
+//             the browser) AND per IP, so clearing the browser doesn't reset it.
+//             Then they can ask for access. While CHAT_ACCESS is tailnet (the
+//             default), src/api.js refuses models and chat before this path and
+//             reports tier "closed" with zero prompts.
 //   pending   asked for access, waiting for the owner.
 //   denied    the owner said no.
 //
