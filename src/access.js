@@ -34,10 +34,10 @@ async function keyFor(team, kid, fetchImpl) {
 }
 
 // -> { ok: true, email } | { ok: false, status, error }
-export async function verifyAccess(request, env, fetchImpl = fetch) {
+export async function verifyAccess(request, env, fetchImpl = fetch, acceptedAudiences = [(env.ACCESS_AUD || "").trim()]) {
   const team = (env.ACCESS_TEAM_DOMAIN || "").trim();
-  const aud = (env.ACCESS_AUD || "").trim();
-  if (!team || !aud) return { ok: false, status: 503, error: "access_not_configured" };
+  const allowed = acceptedAudiences.filter((aud) => typeof aud === "string" && aud.length > 0);
+  if (!team || !allowed.length) return { ok: false, status: 503, error: "access_not_configured" };
 
   const token = request.headers.get("cf-access-jwt-assertion");
   if (!token) return { ok: false, status: 401, error: "unauthenticated" };
@@ -57,11 +57,13 @@ export async function verifyAccess(request, env, fetchImpl = fetch) {
     const now = Math.floor(Date.now() / 1000);
     const auds = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
     if (claims.iss !== `https://${team}`) throw new Error("iss");
-    if (!auds.includes(aud)) throw new Error("aud");
+    if (!allowed.some((aud) => auds.includes(aud))) throw new Error("aud");
     if (typeof claims.exp !== "number" || claims.exp <= now) throw new Error("expired");
     if (typeof claims.nbf === "number" && claims.nbf > now + 60) throw new Error("nbf");
 
-    return { ok: true, email: claims.email ?? null };
+    // Service-token assertions carry common_name and an empty sub; user logins carry a sub.
+    const human = typeof claims.sub === "string" && claims.sub.length > 0 && !claims.common_name;
+    return { ok: true, email: claims.email ?? null, human };
   } catch (err) {
     console.warn(JSON.stringify({ access: "rejected", reason: String(err?.message || err) }));
     return { ok: false, status: 401, error: "unauthenticated" };

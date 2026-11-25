@@ -15,6 +15,7 @@
 import { verifyAccess } from "./access.js";
 import { notifyOwner } from "./alert.js";
 import { standing, canChat, consume, describe, requestAccess, listVisitors, decide, freePrompts, VISITOR, REQUEST_LIMITS } from "./quota.js";
+import { repoQa } from "./repo-qa.js";
 
 export const json = (data, init = {}) =>
   new Response(JSON.stringify(data), {
@@ -367,6 +368,23 @@ const admin = (handler) => async (request, env, ctx, url) => {
   return handler(request, env, ctx, url, who);
 };
 
+// Only explicitly configured Q&A and Mellonpanel audiences grant repo access.
+const protectedRepoQa = async (request, env) => {
+  const origin = request.headers.get("origin");
+  if (origin && origin !== new URL(request.url).origin) return json({ error: "forbidden_origin" }, { status: 403 });
+  const audiences = [env.REPO_QA_ACCESS_AUD, env.MELLONPANEL_ACCESS_AUD].map((aud) => (aud || "").trim()).filter(Boolean);
+  const unrelated = [env.ACCESS_AUD, env.ADMIN_ACCESS_AUD].map((aud) => (aud || "").trim()).filter(Boolean);
+  if (audiences.some((aud) => unrelated.includes(aud))) return json({ error: "access_not_configured" }, { status: 503 });
+  const who = await verifyAccess(request, env, env.__fetch ?? fetch, audiences);
+  if (!who.ok) return json({ error: who.error }, { status: who.status });
+  if (!who.human || typeof who.email !== "string" || !who.email.trim()) return json({ error: "unauthenticated" }, { status: 401 });
+  if (!env.CHAT_LIMIT) return json({ error: "rate_limit_not_configured" }, { status: 503 });
+  // Keyed by identity: every Mellonpanel request arrives from the panel host's IP.
+  const { success } = await env.CHAT_LIMIT.limit({ key: `repo-qa:${who.email.trim().toLowerCase()}` });
+  if (!success) return json({ error: "rate_limited" }, { status: 429, headers: { "retry-after": "60" } });
+  return repoQa(request, env, { json, call });
+};
+
 const ACTIONS = new Set(["approve", "deny", "reset"]);
 
 export const routes = {
@@ -374,6 +392,7 @@ export const routes = {
   "GET /api/me": gated((req, env, ctx, url, who) => json({ email: who.email, public: isPublic(env) })),
   "GET /api/models": gated(models, "MODELS_LIMIT"),
   "POST /api/chat": gated(chat, "CHAT_LIMIT"),
+  "POST /api/repo-qa": protectedRepoQa,
   "GET /api/quota": gated(quotaRoute, "MODELS_LIMIT"),
   "POST /api/access-request": gated(accessRequest, "MODELS_LIMIT"),
   "GET /api/admin/visitors": admin(async (req, env, ctx, url, who) =>
