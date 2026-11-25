@@ -224,12 +224,14 @@ const ERRORS = {
   too_large: "This conversation is too long to send. Start a new chat.",
   quota_exhausted: "You've used your free prompts. Request access below.",
   denied: "The owner declined access for this browser.",
+  tailnet_only: "This chat is currently limited to the private network. From a device on that network, open the tailnet pass page and it will send you back here.",
   visitor_required: "This browser couldn't be identified. Allow site storage and reload.",
   quota_not_configured: "The prompt quota isn't set up on the Worker yet.",
   rate_limited: "Too many requests from your connection. Wait a minute and try again.",
   rate_limit_not_configured: "The Worker is public but has no rate limit configured, so it's refusing requests.",
 };
 const explain = (e) => {
+  if (typeof e.message === "string" && e.message.trim()) return e.message.trim();
   if (e.error === "offline" && OFFLINE[e.backend]) return OFFLINE[e.backend];
   if (e.error === "not_configured" && BACKEND_LABEL[e.backend]) {
     return `The Worker isn't connected to ${BACKEND_LABEL[e.backend]} yet (its URL or tunnel token is missing).`;
@@ -300,7 +302,7 @@ async function loadModels() {
 }
 
 // ---------- quota ----------
-const BLOCKED = new Set(["exhausted", "pending", "denied"]);
+const BLOCKED = new Set(["exhausted", "pending", "denied", "closed"]);
 const blocked = () => !!quota && BLOCKED.has(quota.tier);
 let pollTimer = 0;
 
@@ -315,7 +317,11 @@ function renderQuota() {
   if (!q || q.tier === "private") { updateSend(); return; }
   let line = "";
   if (q.tier === "tailnet") line = `Tailnet${q.device ? " · " + q.device : ""} · unlimited`;
-  else if (q.tier === "approved") line = "Approved · unlimited";
+  else if (q.tier === "closed") {
+    line = "Private network only";
+    els.emptyQuota.textContent = q.message || ERRORS.tailnet_only;
+    els.emptyQuota.hidden = false;
+  } else if (q.tier === "approved") line = "Approved · unlimited";
   else if (q.tier === "free") {
     line = `${q.remaining} of ${q.limit} free prompt${q.limit === 1 ? "" : "s"} left`;
     if (q.remaining <= 3) els.quota.dataset.low = "";

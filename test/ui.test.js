@@ -2,6 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { TAILNET_ONLY_MESSAGE } from "../src/api.js";
 
 const read = (f) => readFileSync(new URL(`../public/${f}`, import.meta.url), "utf8");
 const css = read("app.css");
@@ -31,6 +32,15 @@ test("public page has hub-style canonical, Open Graph, and Twitter tags", () => 
 test("the lab index link is visible on the chat page", () => {
   assert.match(html, /<a class="crumb" href="https:\/\/melltron\.build\/lab\/">melltron\.build \/ lab<\/a>/);
   assert.doesNotMatch(css, /\.crumb[^{]*\{[^}]*display:\s*none/);
+});
+
+test("the chat page explains tailnet-only mode and does not offer a request for it", () => {
+  const js = read("app.js");
+  assert.ok(js.includes(TAILNET_ONLY_MESSAGE));
+  assert.match(js, /"closed"/);
+  assert.match(js, /Private network only/);
+  const admin = read("admin/admin.js");
+  assert.match(admin, /CHAT_ACCESS is public/);
 });
 
 test("visitor errors name the machine that failed", () => {

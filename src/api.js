@@ -14,7 +14,7 @@
 
 import { verifyAccess } from "./access.js";
 import { notifyOwner } from "./alert.js";
-import { standing, canChat, consume, describe, requestAccess, listVisitors, decide, freePrompts, VISITOR, REQUEST_LIMITS } from "./quota.js";
+import { standing, canChat, consume, describe, requestAccess, listVisitors, decide, freePrompts, verifyPass, VISITOR, REQUEST_LIMITS } from "./quota.js";
 import { repoQa } from "./repo-qa.js";
 
 export const json = (data, init = {}) =>
@@ -33,20 +33,59 @@ const ROLES = new Set(["system", "user", "assistant"]);
 export const DEFAULT_SYSTEM =
   "You are a helpful assistant. Always think and respond in English, unless the user explicitly writes in or asks for another language.";
 
-// PUBLIC="true" opens the app to anyone, with no Access login. The tunnels stay
-// locked to the service token. Strangers get FREE_PROMPTS chats, then need the
-// owner's approval (src/quota.js); tailnet devices with a pass are unlimited. The
-// per-IP rate limits are a coarse extra brake. Public mode fails closed without
-// the rate-limit bindings or the D1 database.
+// PUBLIC="true" opens the app with no Access login. The tunnels stay locked to
+// the service token. CHAT_ACCESS chooses who may then use the models:
+//   tailnet  (default) a valid tailnet pass is required for models and chat.
+//            The pass is the only tailnet proof available here — tailnet-pass.py
+//            mints it after `tailscale whois`, and Cloudflare does not show the
+//            Tailscale address. Anything other than "public" means tailnet.
+//   public   the previous policy: FREE_PROMPTS, then the owner's approval
+//            (src/quota.js). Tailnet passes stay unlimited.
+// The flag is ignored when PUBLIC is not "true"; private mode still requires
+// Access. Per-IP rate limits are a coarse extra brake. Public mode fails closed
+// without those bindings. The free-prompt policy also fails closed without D1;
+// a tailnet pass does not need D1.
+export const TAILNET_ONLY_MESSAGE =
+  "This chat is currently limited to the private network. From a device on that network, open the tailnet pass page and it will send you back here.";
+export const TAILNET_PASS_MESSAGE =
+  "This chat is limited to the private network, and the pass saved in this browser is no longer valid. Open the tailnet pass page again from a device on that network.";
+
 const isPublic = (env) => (env.PUBLIC || "").trim() === "true";
+export const chatAccessMode = (env) => ((env.CHAT_ACCESS || "").trim() === "public" ? "public" : "tailnet");
+const tailnetOnly = (env) => isPublic(env) && chatAccessMode(env) === "tailnet";
+
+const closedQuota = (passInvalid) => ({
+  tier: "closed",
+  used: 0,
+  limit: 0,
+  remaining: 0,
+  requested: false,
+  device: null,
+  passInvalid,
+  message: passInvalid ? TAILNET_PASS_MESSAGE : TAILNET_ONLY_MESSAGE,
+});
+
+// null when the request may continue. A 403 when tailnet-only and the pass is
+// missing or bad — before rate limits, D1, or the model servers.
+async function denyUnlessTailnet(request, env) {
+  if (!tailnetOnly(env)) return null;
+  const token = request.headers.get("x-ai-pass");
+  if (await verifyPass(token, env.PASS_SECRET)) return null;
+  const quota = closedQuota(!!token);
+  return json({ error: "tailnet_only", message: quota.message, quota }, { status: 403 });
+}
 
 // Wraps a handler so it only runs for a verified Access user (or anyone, when
-// public) who is within the rate limit named by `limiter`.
-const gated = (handler, limiter) => async (request, env, ctx, url) => {
+// public) who is within the rate limit named by `limiter`. opts.tailnet applies
+// the pass check first, and only while CHAT_ACCESS is tailnet.
+const gated = (handler, limiter, opts = {}) => async (request, env, ctx, url) => {
   let who = { ok: true, email: null };
   if (!isPublic(env)) {
     who = await verifyAccess(request, env, env.__fetch ?? fetch);
     if (!who.ok) return json({ error: who.error }, { status: who.status });
+  } else if (opts.tailnet) {
+    const denied = await denyUnlessTailnet(request, env);
+    if (denied) return denied;
   }
   if (limiter) {
     const rl = env[limiter];
@@ -186,6 +225,8 @@ async function listBackend(env, backend) {
 // request only fails when none can be listed. With nothing configured, the desktop
 // is still tried so the UI gets not_configured instead of an empty list.
 async function models(request, env) {
+  const denied = await denyUnlessTailnet(request, env);
+  if (denied) return denied;
   const on = Object.keys(BACKENDS).filter((k) => configured(env, k));
   const names = on.length ? on : ["desktop"];
   const results = await Promise.all(names.map((k) => listBackend(env, k)));
@@ -244,11 +285,18 @@ async function chat(request, env) {
 
   let quota = null;
   if (isPublic(env)) {
-    if (!env.DB) return json({ error: "quota_not_configured" }, { status: 503 });
-    quota = await standing(request, env);
-    if (quota.tier === "invalid") return json({ error: "visitor_required" }, { status: 400 });
-    if (!canChat(quota)) {
-      return json({ error: quota.tier === "denied" ? "denied" : "quota_exhausted", quota: describe(quota) }, { status: 403 });
+    if (tailnetOnly(env)) {
+      const denied = await denyUnlessTailnet(request, env);
+      if (denied) return denied;
+      // A valid pass never reads or writes D1.
+      quota = await standing(request, env);
+    } else {
+      if (!env.DB) return json({ error: "quota_not_configured" }, { status: 503 });
+      quota = await standing(request, env);
+      if (quota.tier === "invalid") return json({ error: "visitor_required" }, { status: 400 });
+      if (!canChat(quota)) {
+        return json({ error: quota.tier === "denied" ? "denied" : "quota_exhausted", quota: describe(quota) }, { status: 403 });
+      }
     }
   }
 
@@ -317,6 +365,11 @@ export function sseToNdjson() {
 // What the caller may do: tailnet / approved / free (+remaining) / pending / exhausted / denied.
 async function quotaRoute(request, env) {
   if (!isPublic(env)) return json({ tier: "private" });
+  if (tailnetOnly(env)) {
+    const token = request.headers.get("x-ai-pass");
+    if (!(await verifyPass(token, env.PASS_SECRET))) return json(closedQuota(!!token));
+    return json(describe(await standing(request, env)));
+  }
   if (!env.DB) return json({ error: "quota_not_configured" }, { status: 503 });
   const s = await standing(request, env);
   if (s.tier === "invalid") return json({ error: "visitor_required" }, { status: 400 });
@@ -339,6 +392,10 @@ const cleanText = (v, max) => (typeof v === "string" ? v.replace(/[\u0000-\u001f
 // A visitor out of free prompts asks the owner for more.
 async function accessRequest(request, env, ctx, url) {
   if (!isPublic(env)) return json({ error: "not_found" }, { status: 404 });
+  // Off while tailnet-only. An approval would let that browser chat from
+  // anywhere, which is the hole this mode closes. /admin still stores decisions
+  // for when CHAT_ACCESS is set back to public; nothing is emailed or written here.
+  if (tailnetOnly(env)) return json({ error: "tailnet_only", message: TAILNET_ONLY_MESSAGE }, { status: 403 });
   if (!env.DB) return json({ error: "quota_not_configured" }, { status: 503 });
   const s = await standing(request, env);
   if (s.tier === "invalid") return json({ error: "visitor_required" }, { status: 400 });
@@ -390,13 +447,13 @@ const ACTIONS = new Set(["approve", "deny", "reset"]);
 export const routes = {
   "GET /api/ping": () => json({ ok: true, at: new Date().toISOString() }),
   "GET /api/me": gated((req, env, ctx, url, who) => json({ email: who.email, public: isPublic(env) })),
-  "GET /api/models": gated(models, "MODELS_LIMIT"),
-  "POST /api/chat": gated(chat, "CHAT_LIMIT"),
+  "GET /api/models": gated(models, "MODELS_LIMIT", { tailnet: true }),
+  "POST /api/chat": gated(chat, "CHAT_LIMIT", { tailnet: true }),
   "POST /api/repo-qa": protectedRepoQa,
   "GET /api/quota": gated(quotaRoute, "MODELS_LIMIT"),
   "POST /api/access-request": gated(accessRequest, "MODELS_LIMIT"),
   "GET /api/admin/visitors": admin(async (req, env, ctx, url, who) =>
-    json({ visitors: await listVisitors(env), freePrompts: freePrompts(env), admin: who.email })),
+    json({ visitors: await listVisitors(env), freePrompts: freePrompts(env), chatAccess: chatAccessMode(env), admin: who.email })),
   "POST /api/admin/visitors": admin(async (req, env) => {
     const body = await readSmallJson(req);
     if (!body || typeof body.id !== "string" || !VISITOR.test(body.id) || !ACTIONS.has(body.action)) {

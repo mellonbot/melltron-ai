@@ -48,7 +48,7 @@ beforeEach(() => {
   };
   env = {
     ASSETS: { fetch: async () => new Response("x") },
-    PUBLIC: "true", FREE_PROMPTS: "3",
+    PUBLIC: "true", CHAT_ACCESS: "public", FREE_PROMPTS: "3",
     ACCESS_TEAM_DOMAIN: TEAM, ACCESS_AUD: "", ADMIN_ACCESS_AUD: ADMIN_AUD,
     OLLAMA_URL: "https://ollama.example", OLLAMA_CLIENT_ID: "cid", OLLAMA_CLIENT_SECRET: "cs",
     PASS_SECRET: SECRET, CHAT_LIMIT: unlimitedRl, MODELS_LIMIT: unlimitedRl, DB: fakeD1(),

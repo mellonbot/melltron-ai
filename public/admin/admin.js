@@ -87,7 +87,10 @@ async function load() {
   freePrompts = data.freePrompts ?? 10;
   const pending = data.visitors.filter((v) => v.status === "pending");
   const others = data.visitors.filter((v) => v.status !== "pending");
-  $("summary").textContent = `${pending.length} waiting · ${others.length} other visitor${others.length === 1 ? "" : "s"} · ${freePrompts} free prompts each · signed in as ${data.admin || "owner"}`;
+  const tailnetNote = data.chatAccess === "tailnet"
+    ? " Chat is limited to the private network, so an approval does nothing until CHAT_ACCESS is public."
+    : "";
+  $("summary").textContent = `${pending.length} waiting · ${others.length} other visitor${others.length === 1 ? "" : "s"} · ${freePrompts} free prompts each · signed in as ${data.admin || "owner"}${tailnetNote}`;
   $("pending").replaceChildren(...(pending.length ? pending.map(card) : [el("p", "empty", "Nobody is waiting.")]));
   $("others").replaceChildren(...others.map(row));
   document.title = pending.length ? `(${pending.length}) AI admin` : "AI admin · melltron.build lab";

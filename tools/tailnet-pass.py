@@ -5,6 +5,9 @@ Runs on a machine in the tailnet and listens ONLY on its Tailscale address, so
 only tailnet devices can reach it. Opening it in a browser mints a signed pass
 and redirects to https://ai.melltron.build/#pass=<token>; the page keeps the pass
 and the Worker treats that browser as unlimited (src/quota.js) until it expires.
+While CHAT_ACCESS is "tailnet" (the default), that pass is also required to list
+models or chat. The Worker cannot see Tailscale addresses, so a copied pass works
+from any network until it expires.
 
 The token format matches signPass() in src/quota.js:
     base64url(JSON {dev, user, exp}) + "." + base64url(HMAC-SHA256(secret, payload))

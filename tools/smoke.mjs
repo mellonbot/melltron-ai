@@ -38,6 +38,8 @@ const WAIT = Number(opt("--wait", "0"));
 const BROWSER = !flag("--no-browser");
 const BUST = `verify=${(process.env.GITHUB_SHA || String(Date.now())).slice(0, 12)}`;
 const HOST = new URL(BASE).host;
+const chatAccess = (readFileSync(join(ROOT, "wrangler.jsonc"), "utf8").match(/"CHAT_ACCESS"\s*:\s*"([^"]*)"/)?.[1] || "").trim();
+const TAILNET_CHAT = chatAccess !== "public";
 
 const results = [];
 const pass = (area, detail) => results.push({ area, status: "pass", detail });
@@ -194,6 +196,25 @@ if (admin.length && admin.every((r) => r.gated || (r.res?.status === 200 && r.ha
     : pass("health", `app=ai version=${body.version} deployed=${body.deployed ?? "null"}`);
 }
 
+if (TAILNET_CHAT) {
+  const models = await get("/api/models");
+  let body = {};
+  try { body = await models.json(); } catch { /* reported below */ }
+  const errs = [];
+  if (models.status !== 403) errs.push(`status ${models.status}`);
+  if (body.error !== "tailnet_only") errs.push(`error ${JSON.stringify(body.error)}`);
+  if (body.quota?.remaining !== 0) errs.push("quota remaining is not 0");
+  errs.length
+    ? fail("chat", `anonymous /api/models is not tailnet-only (${errs.join("; ")})`)
+    : pass("chat", "anonymous /api/models is tailnet-only (403, zero prompts)");
+  const quota = await get("/api/quota");
+  let q = {};
+  try { q = await quota.json(); } catch { /* reported below */ }
+  quota.status === 200 && q.tier === "closed" && q.remaining === 0
+    ? pass("chat", "anonymous /api/quota reports the private-network limit")
+    : fail("chat", `anonymous /api/quota returned ${quota.status} tier=${q.tier}`);
+}
+
 {
   const broken = [];
   let checked = 0;
@@ -266,11 +287,24 @@ if (BROWSER) {
       document.addEventListener("securitypolicyviolation", (e) =>
         console.error(`CSP violation: ${e.violatedDirective} blocked ${e.blockedURI || "inline"}`));
     });
-    page.on("console", (m) => m.type() === "error" && problems.push(m.text()));
+    page.on("console", (m) => {
+      if (m.type() !== "error") return;
+      const text = m.text();
+      const where = m.location()?.url || "";
+      // Chromium logs the expected tailnet 403 as a console error. The message
+      // often has no URL; the response check above still flags any other 403.
+      if (TAILNET_CHAT && /status of 403/.test(text) && (/\/api\/(models|chat)/.test(`${text} ${where}`) || /^Failed to load resource: the server responded with a status of 403\b/.test(text))) return;
+      problems.push(text);
+    });
     page.on("pageerror", (e) => problems.push(`uncaught: ${e.message}`));
     page.on("requestfailed", (r) => problems.push(`request failed: ${r.url()} (${r.failure()?.errorText})`));
     page.on("response", (r) => {
-      if (r.url().startsWith(BASE) && r.status() >= 400) problems.push(`${r.status()} ${r.url()}`);
+      if (!r.url().startsWith(BASE) || r.status() < 400) return;
+      const path = new URL(r.url()).pathname;
+      // The public page asks for models on load. Tailnet-only mode answers 403
+      // on purpose; that is the gate, not a broken page.
+      if (TAILNET_CHAT && r.status() === 403 && (path === "/api/models" || path === "/api/chat")) return;
+      problems.push(`${r.status()} ${r.url()}`);
     });
     try {
       await page.goto(BASE + f.path, { waitUntil: "load", timeout: 30000 });

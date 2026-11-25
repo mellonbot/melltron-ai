@@ -34,7 +34,12 @@
     "PI_URL": "",
     // Open to anyone, no Access login. Needs the rate limits below (fails closed without).
     "PUBLIC": "true",
+    // Who may use the models while PUBLIC is "true".
+    // "tailnet" (default): /api/models and /api/chat require a valid tailnet pass.
+    // "public": FREE_PROMPTS, then an access request. Any other value stays tailnet-only.
+    "CHAT_ACCESS": "tailnet",
     // Free chats per visitor (and per IP) before the owner has to approve them.
+    // Used only when CHAT_ACCESS is "public".
     "FREE_PROMPTS": "10",
     // AUD of the "AI admin" Access app covering /admin and /api/admin (owner only).
     // Sender for access-request alerts (melltron.build is an Email Sending domain).
