@@ -107,6 +107,12 @@ Off (`PI_URL` empty). cloudflared still runs on the Pi as a system service, and 
 
 An Access application for `ollama-tunnel.melltron.build` uses the same single **Service Auth** policy as the other tunnels. Ollama loads one model at a time, so the first message after a switch waits while it loads. Reasoning from a `deepseek` / `r1` model on the Pi still arrives inline, ending in `</think>` (the opening tag is part of the prompt); the UI splits it into the Reasoning panel. `/api/show` capabilities turn the reasoning checkbox on when the model supports `think`.
 
+## Public page
+
+The chat page links back to [the lab index](https://melltron.build/lab/). `/favicon.ico` is the still frame of `public/favicon.svg` (browsers request the `.ico` even when the SVG icon is linked). `public/robots.txt` allows the public site, skips `/admin`, and points at `sitemap.xml`.
+
+`https://ai.melltron.build/robots.txt` currently returns Cloudflare's free-plan Content Signals comment block, because the origin had no `robots.txt` and the Worker's HTML 404 is rewritten at the edge. That body is not in this repo, and it is not the managed-crawler file (no `User-agent` or bot `Disallow` rules). `https://melltron.build/robots.txt` on the same zone is served unchanged, so Bot Preference Sync is not prepending today. Shipping `public/robots.txt` is the origin fix. If Bot Preference Sync is later turned on in the dashboard with a Block or Disallow policy, Cloudflare can prepend managed lines; that setting is not in this repo.
+
 ## Develop
 
 `npm run dev` · `npm test` · `npm run check` (CI runs the same). Tests fake Ollama and the Access certs endpoint and sign real RS256 tokens. Node ≥ 22.
